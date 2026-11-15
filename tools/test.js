@@ -26,18 +26,30 @@ const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'dabblecad-test-shots-'));
 const suites = ['smoke3.js', 'smoke-laser.js', 'smoke-depth.js', 'smoke6.js', 'smoke-save.js'];
-// Hosted Mac runners have a Metal GPU but no working software WebGL, so they test on the GPU.
-const software = process.platform === 'darwin' ? [] : ['--software'];
+// Windows tests on its built-in software adapter. Macs have none, so try the GPU first
+// (hosted Apple Silicon runners have Metal) and then Chromium's software rasteriser
+// (hosted Intel runners have no GPU). The first mode that passes a suite is kept.
+const SWIFT = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
+let modes = process.platform === 'darwin'
+  ? [[], SWIFT, [...SWIFT, '--disable-gpu-sandbox'], [...SWIFT, '--in-process-gpu']]
+  : [['--software']];
 let failed = false;
 try {
   for (const suite of suites) {
     console.log('\n=== ' + suite + (packaged ? ' (packaged, offline)' : ' (offline)') + ' ===');
-    const args = [...(packaged ? [] : [root]), '--smoke=' + path.join(__dirname, suite), '--shots=' + shots, ...software, '--offline'];
-    const result = spawnSync(executable, args, { cwd: root, env, encoding: 'utf8', timeout: 180000, maxBuffer: 8 * 1024 * 1024 });
+    let result, line;
+    for (const mode of modes) {
+      if (modes.length > 1) console.log('[render mode] ' + (mode.join(' ') || 'gpu'));
+      const args = [...(packaged ? [] : [root]), '--smoke=' + path.join(__dirname, suite), '--shots=' + shots, ...mode, '--offline'];
+      result = spawnSync(executable, args, { cwd: root, env, encoding: 'utf8', timeout: 180000, maxBuffer: 8 * 1024 * 1024 });
+      line = (result.stdout || '').split(/\r?\n/).find((text) => text.startsWith('[smoke result] '));
+      const ok = !result.error && result.status === 0 && line;
+      if (ok || mode === modes[modes.length - 1]) { if (ok) modes = [mode]; break; }
+      console.log('[render mode] unavailable, trying the next one');
+    }
     process.stdout.write(result.stdout || '');
     process.stderr.write(result.stderr || '');
     if (result.error) console.error(result.error);
-    const line = (result.stdout || '').split(/\r?\n/).find((text) => text.startsWith('[smoke result] '));
     if (result.error || result.status !== 0 || !line) {
       console.error(suite + ' did not complete successfully');
       failed = true;
