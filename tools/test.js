@@ -26,11 +26,13 @@ const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'dabblecad-test-shots-'));
 const suites = ['smoke3.js', 'smoke-laser.js', 'smoke-depth.js', 'smoke6.js', 'smoke-save.js'];
+// Hosted Mac runners have a Metal GPU but no working software WebGL, so they test on the GPU.
+const software = process.platform === 'darwin' ? [] : ['--software'];
 let failed = false;
 try {
   for (const suite of suites) {
     console.log('\n=== ' + suite + (packaged ? ' (packaged, offline)' : ' (offline)') + ' ===');
-    const args = [...(packaged ? [] : [root]), '--smoke=' + path.join(__dirname, suite), '--shots=' + shots, '--software', '--offline'];
+    const args = [...(packaged ? [] : [root]), '--smoke=' + path.join(__dirname, suite), '--shots=' + shots, ...software, '--offline'];
     const result = spawnSync(executable, args, { cwd: root, env, encoding: 'utf8', timeout: 180000, maxBuffer: 8 * 1024 * 1024 });
     process.stdout.write(result.stdout || '');
     process.stderr.write(result.stderr || '');
