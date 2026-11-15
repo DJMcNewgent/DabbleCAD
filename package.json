@@ -2,7 +2,7 @@
   "name": "dabblecad",
   "productName": "DabbleCAD",
   "version": "1.0.0",
-  "description": "Easy block-style 3D design for 3D printing, plus laser projects and depth maps, running locally on your computer with no account or internet needed.",
+  "description": "An offline, open-source alternative to Tinkercad for 3D design and 3D printing, plus laser projects and depth maps. Runs locally; no account needed.",
   "main": "electron/main.js",
   "author": "DJMcNewgent",
   "license": "MIT",

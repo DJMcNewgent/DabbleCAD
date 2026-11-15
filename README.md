@@ -2,10 +2,10 @@
 
 # DabbleCAD
 
-**Easy 3D design for 3D printing, on your own computer.**
+**An offline, open-source alternative to Tinkercad for 3D design and 3D printing.**
 
-If you've used the popular beginner 3D design tools that only run in a web browser,
-this will feel familiar: drag shapes onto a workplane, stretch and rotate them, turn
+DabbleCAD is inspired by Tinkercad's shape-based workflow, but runs locally with no
+account. If you've designed that way in a web browser, this will feel familiar: drag shapes onto a workplane, stretch and rotate them, turn
 some into holes, group them into one part, and export an STL or 3MF for your slicer.
 The difference is that DabbleCAD is a desktop app. It runs locally, your designs stay
 on your computer, and it needs no account and no internet connection.
@@ -200,3 +200,8 @@ Licensed under the [MIT License](LICENSE).
 Built with Electron, Three.js, three-mesh-bvh, three-bvh-csg, OpenType.js,
 Clipper, QR Code Generator, and Roboto. See
 [third-party notices](THIRD_PARTY_NOTICES.md) for component licenses.
+
+## Trademarks
+
+DabbleCAD is an independent project, not affiliated with or endorsed by Autodesk.
+Tinkercad is a trademark of Autodesk, Inc.

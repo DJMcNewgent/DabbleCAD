@@ -1,8 +1,11 @@
 # DabbleCAD 1.0.0
 
-The first release of DabbleCAD: easy, block-style 3D design for 3D printing that runs
-locally on your computer instead of only in a web browser, with a laser workspace and
-depth-map tools alongside. No account or internet connection is needed to use it.
+The first release of DabbleCAD: an offline, open-source alternative to Tinkercad for
+3D design and 3D printing, with a laser workspace and depth-map tools alongside. It
+runs locally, and no account or internet connection is needed to use it.
+
+DabbleCAD is an independent project, not affiliated with or endorsed by Autodesk.
+Tinkercad is a trademark of Autodesk, Inc.
 
 > I'm a tinkerer. I kept jumping between different apps for the things I like to
 > do, and I wanted those tools together in one place. This is just the start.
