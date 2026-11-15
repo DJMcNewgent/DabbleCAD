@@ -2,10 +2,16 @@
 
 # DabbleCAD
 
-**An offline desktop workspace for tinkerers.**
+**Easy 3D design for 3D printing, on your own computer.**
 
-3D design, laser projects, and depth maps in one place. Build with shapes, cut holes,
-combine parts, prepare a laser design, and keep experimenting without switching apps.
+If you've used the popular beginner 3D design tools that only run in a web browser,
+this will feel familiar: drag shapes onto a workplane, stretch and rotate them, turn
+some into holes, group them into one part, and export an STL or 3MF for your slicer.
+The difference is that DabbleCAD is a desktop app. It runs locally, your designs stay
+on your computer, and it needs no account and no internet connection.
+
+It also includes a laser workspace and depth-map tools, so you can keep making
+without switching apps.
 
 [Releases](https://github.com/DJMcNewgent/DabbleCAD/releases) ·
 [Report a bug](https://github.com/DJMcNewgent/DabbleCAD/issues) ·

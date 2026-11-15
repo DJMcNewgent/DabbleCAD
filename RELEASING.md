@@ -70,7 +70,7 @@ git diff --cached --check
 git diff --cached
 git commit -m "Prepare DabbleCAD for its first public release"
 git branch -M main
-gh repo create DJMcNewgent/DabbleCAD --public --source=. --remote=origin --push --description "An offline desktop workspace for tinkerers: 3D design, laser projects and depth maps."
+gh repo create DJMcNewgent/DabbleCAD --public --source=. --remote=origin --push --description "Easy block-style 3D design for 3D printing, plus laser projects and depth maps, running locally on your computer with no account or internet needed."
 ```
 
 If the repository or remote already exists, use it instead of creating another.

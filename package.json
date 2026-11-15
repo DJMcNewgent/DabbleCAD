@@ -2,7 +2,7 @@
   "name": "dabblecad",
   "productName": "DabbleCAD",
   "version": "1.0.0",
-  "description": "An offline desktop workspace for tinkerers: 3D design, laser projects and depth maps in one place.",
+  "description": "Easy block-style 3D design for 3D printing, plus laser projects and depth maps, running locally on your computer with no account or internet needed.",
   "main": "electron/main.js",
   "author": "DJMcNewgent",
   "license": "MIT",
