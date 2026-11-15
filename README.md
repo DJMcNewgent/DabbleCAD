@@ -1,4 +1,4 @@
-<p align="center"><img src="build/icon.png" alt="DabbleCAD icon" width="112"></p>
+<p align="center"><img src="docs/logo.png" alt="DabbleCAD" width="560"></p>
 
 # DabbleCAD
 
@@ -16,6 +16,20 @@ without switching apps.
 [Releases](https://github.com/DJMcNewgent/DabbleCAD/releases) ·
 [Report a bug](https://github.com/DJMcNewgent/DabbleCAD/issues) ·
 [Contribute](CONTRIBUTING.md)
+
+## Screenshots
+
+**3D Design** — drag shapes onto the workplane, resize them, and combine them into parts.
+
+![3D Design workspace](docs/screenshot-3d-design.png)
+
+**Laser** — draw or import artwork, set up layers, and send the job to your laser.
+
+![Laser workspace](docs/screenshot-laser.png)
+
+**Depth Map Studio** — turn an STL model or an image into a height map for relief engraving.
+
+![Depth Map Studio](docs/screenshot-depth-map.png)
 
 ## Why I built this
 
