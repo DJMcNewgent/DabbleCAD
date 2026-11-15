@@ -31,6 +31,9 @@ jobs:
             os: macos-15-intel
             args: --mac --x64
             artifact: mac-x64
+            # Hosted Intel Macs have no GPU and cannot create the WebGL view, so this
+            # build is packaged without running the suites.
+            skip_tests: true
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
@@ -51,12 +54,16 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + version + '\n');
       - run: npm ci
       - name: Test all workspaces offline
+        if: ${{ !matrix.skip_tests }}
         run: npm run test:all
+      - name: Build without tests
+        if: ${{ matrix.skip_tests }}
+        run: npm run build
       - name: Package apps without publishing
         if: github.event_name != 'pull_request'
         run: npx --no-install electron-builder ${{ matrix.args }} --publish never
       - name: Test packaged apps offline
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name != 'pull_request' && !matrix.skip_tests }}
         run: npm run test:packaged
       - name: Upload distributables
         if: github.event_name != 'pull_request'

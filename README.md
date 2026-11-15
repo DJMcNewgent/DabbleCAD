@@ -150,7 +150,7 @@ unchanged, except that deleting a design still removes that copy.
 
 Press `?` for the full shortcut list. Dark and light themes, graphics settings,
 shadows, and edge display are available in Settings. If the graphics driver crashes
-repeatedly, the app can fall back to software rendering.
+repeatedly, the app can fall back to software rendering (Windows only; a Mac needs a working GPU).
 
 ## Run from source
 

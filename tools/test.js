@@ -26,13 +26,9 @@ const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'dabblecad-test-shots-'));
 const suites = ['smoke3.js', 'smoke-laser.js', 'smoke-depth.js', 'smoke6.js', 'smoke-save.js'];
-// Windows tests on its built-in software adapter. Macs have none, so try the GPU first
-// (hosted Apple Silicon runners have Metal) and then Chromium's software rasteriser
-// (hosted Intel runners have no GPU). The first mode that passes a suite is kept.
-const SWIFT = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
-let modes = process.platform === 'darwin'
-  ? [[], SWIFT, [...SWIFT, '--disable-gpu-sandbox'], [...SWIFT, '--in-process-gpu']]
-  : [['--software']];
+// Windows tests on its built-in software adapter. Macs have no software WebGL, so they
+// test on the GPU (hosted Apple Silicon runners have one; hosted Intel runners do not).
+let modes = process.platform === 'darwin' ? [[]] : [['--software']];
 let failed = false;
 try {
   for (const suite of suites) {

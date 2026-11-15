@@ -66,9 +66,6 @@ if (argValue('software')) settings.gpu = 'off';
 const hardwareAcceleration = settings.gpu !== 'off';
 if (!hardwareAcceleration) {
   app.disableHardwareAcceleration();
-  // Windows falls back to its built-in software adapter. Elsewhere Chromium refuses
-  // to create a WebGL context without a GPU unless its software rasteriser is allowed.
-  if (process.platform !== 'win32') app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 } else {
   // Prefer the discrete / high-performance adapter on multi-GPU machines.
   app.commandLine.appendSwitch('force_high_performance_gpu');

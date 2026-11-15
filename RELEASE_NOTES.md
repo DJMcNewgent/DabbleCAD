@@ -39,6 +39,11 @@ design library with the app.
 
 ## Important before using
 
+The Intel Mac build is untested: the automated checks could not run on an Intel Mac,
+and it has not been launched on one. The Windows and Apple Silicon builds pass the
+automated checks. Turning off GPU acceleration in Settings is supported on Windows
+only; on a Mac the app needs a working GPU.
+
 These builds are unsigned by a trusted publisher and are not Apple-notarized.
 Mac bundles use an ad-hoc signature. Windows/macOS may show trust warnings or block
 launch. Use only the official release and verify checksums; do not globally disable
