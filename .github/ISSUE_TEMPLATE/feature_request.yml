@@ -1,0 +1,21 @@
+name: Feature idea
+description: Suggest a tool or improvement for your tinkering workflow.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to make or do?
+      description: Explain what is difficult with the current tools.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: How would it fit an offline, all-in-one tinkering workspace?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or examples

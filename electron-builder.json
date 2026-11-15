@@ -1,0 +1,47 @@
+{
+  "appId": "io.github.djmcnewgent.dabblecad",
+  "productName": "DabbleCAD",
+  "copyright": "Copyright (c) 2026 DJMcNewgent",
+  "directories": {
+    "output": "release/${version}",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/main.js",
+    "electron/preload.js",
+    "build/icon.png",
+    "package.json",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "asar": true,
+  "extraResources": [
+    { "from": "LICENSE", "to": "LICENSE.DabbleCAD.txt" },
+    { "from": "THIRD_PARTY_NOTICES.md", "to": "THIRD_PARTY_NOTICES.md" }
+  ],
+  "npmRebuild": false,
+  "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+  "win": {
+    "icon": "build/icon.ico",
+    "target": ["nsis", "zip"]
+  },
+  "nsis": {
+    "artifactName": "${productName}-${version}-win-${arch}-setup.${ext}",
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false,
+    "runAfterFinish": false,
+    "license": "LICENSE"
+  },
+  "mac": {
+    "icon": "build/icon.svg",
+    "category": "public.app-category.graphics-design",
+    "target": ["dmg", "zip"],
+    "identity": "-",
+    "hardenedRuntime": false,
+    "notarize": false
+  },
+  "publish": null
+}

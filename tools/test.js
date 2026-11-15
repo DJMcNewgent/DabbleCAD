@@ -1,0 +1,53 @@
+// Run the existing suites offline against development Electron or a packaged app.
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { version } = require('../package.json');
+
+const root = path.resolve(__dirname, '..');
+const appArg = process.argv.slice(2).find((arg) => arg.startsWith('--app='));
+const packaged = process.argv.includes('--packaged') || !!appArg;
+let executable;
+if (appArg) {
+  executable = path.resolve(appArg.slice('--app='.length));
+} else if (!packaged) {
+  executable = require('electron');
+} else if (process.platform === 'win32') {
+  executable = path.join(root, 'release', version, 'win-unpacked', 'DabbleCAD.exe');
+} else if (process.platform === 'darwin') {
+  executable = path.join(root, 'release', version, process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DabbleCAD.app', 'Contents', 'MacOS', 'DabbleCAD');
+} else {
+  throw new Error('Packaged smoke tests currently support Windows and macOS only');
+}
+if (!fs.existsSync(executable)) throw new Error('Build the app first; executable not found: ' + executable);
+
+const env = { ...process.env };
+delete env.ELECTRON_RUN_AS_NODE;
+const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'dabblecad-test-shots-'));
+const suites = ['smoke3.js', 'smoke-laser.js', 'smoke-depth.js', 'smoke6.js', 'smoke-save.js'];
+let failed = false;
+try {
+  for (const suite of suites) {
+    console.log('\n=== ' + suite + (packaged ? ' (packaged, offline)' : ' (offline)') + ' ===');
+    const args = [...(packaged ? [] : [root]), '--smoke=' + path.join(__dirname, suite), '--shots=' + shots, '--software', '--offline'];
+    const result = spawnSync(executable, args, { cwd: root, env, encoding: 'utf8', timeout: 180000, maxBuffer: 8 * 1024 * 1024 });
+    process.stdout.write(result.stdout || '');
+    process.stderr.write(result.stderr || '');
+    if (result.error) console.error(result.error);
+    const line = (result.stdout || '').split(/\r?\n/).find((text) => text.startsWith('[smoke result] '));
+    if (result.error || result.status !== 0 || !line) {
+      console.error(suite + ' did not complete successfully');
+      failed = true;
+      continue;
+    }
+    const report = JSON.parse(line.slice('[smoke result] '.length));
+    if (!Array.isArray(report.fails) || report.fails.length) {
+      console.error(suite + ' reported failed or missing assertions', report);
+      failed = true;
+    }
+  }
+} finally {
+  fs.rmSync(shots, { recursive: true, force: true });
+}
+process.exitCode = failed ? 1 : 0;

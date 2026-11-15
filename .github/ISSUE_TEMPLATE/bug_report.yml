@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a reproducible problem in DabbleCAD.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove private designs, personal details, and secrets before posting.
+        For vulnerabilities, follow SECURITY.md instead of posting details here.
+  - type: input
+    id: version
+    attributes:
+      label: DabbleCAD version
+      placeholder: 1.0.0, or source commit
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: Windows x64, macOS Apple Silicon, or macOS Intel (include OS version)
+    validations:
+      required: true
+  - type: dropdown
+    id: build
+    attributes:
+      label: Distribution
+      options:
+        - Windows installer
+        - Windows portable ZIP
+        - Mac DMG
+        - Mac ZIP
+        - Source / browser development
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include a small non-private example if it helps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Screenshots and redacted logs are useful. State whether this also happens offline.
+    validations:
+      required: true
+  - type: textarea
+    id: device
+    attributes:
+      label: Laser/controller details, if relevant
+      description: Firmware, device settings, and a description of the issue. Do not repeat unsafe machine behavior to gather evidence.

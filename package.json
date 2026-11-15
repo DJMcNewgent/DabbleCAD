@@ -1,0 +1,48 @@
+{
+  "name": "dabblecad",
+  "productName": "DabbleCAD",
+  "version": "1.0.0",
+  "description": "An offline desktop workspace for tinkerers: 3D design, laser projects and depth maps in one place.",
+  "main": "electron/main.js",
+  "author": "DJMcNewgent",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "vite build && node tools/run.js",
+    "app": "node tools/run.js",
+    "package": "npm run package:win",
+    "package:win": "npm run build && electron-builder --win --x64 --publish never",
+    "package:mac": "npm run build && electron-builder --mac --x64 --arm64 --publish never",
+    "test": "vite build && node tools/run.js --smoke=tools/smoke3.js",
+    "test:laser": "vite build && node tools/run.js --smoke=tools/smoke-laser.js",
+    "test:depth": "vite build && node tools/run.js --smoke=tools/smoke-depth.js",
+    "test:save": "vite build && node tools/run.js --smoke=tools/smoke-save.js",
+    "test:all": "npm run build && node tools/test.js",
+    "test:packaged": "node tools/test.js --packaged"
+  },
+  "devDependencies": {
+    "@fontsource/roboto": "^5.3.0",
+    "clipper-lib": "^6.4.2",
+    "electron": "^45.3.2",
+    "electron-builder": "26.18.0",
+    "opentype.js": "^2.0.0",
+    "qrcode-generator": "^2.0.4",
+    "three": "^0.187.0",
+    "three-bvh-csg": "^0.0.18",
+    "three-mesh-bvh": "^0.9.18",
+    "vite": "^8.3.8"
+  },
+  "homepage": "https://github.com/DJMcNewgent/DabbleCAD",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DJMcNewgent/DabbleCAD.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DJMcNewgent/DabbleCAD/issues"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "private": true
+}
