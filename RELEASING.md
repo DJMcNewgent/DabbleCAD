@@ -64,7 +64,7 @@ private keys, signing certificates, generated binaries, or dependency folders.
 The following is a maintainer procedure, not something local packaging executes:
 
 ```sh
-git add .gitignore .github LICENSE README.md CONTRIBUTING.md SECURITY.md RELEASING.md RELEASE_NOTES.md THIRD_PARTY_NOTICES.md package.json package-lock.json electron-builder.json vite.config.mjs build electron src tools
+git add .gitignore .github LICENSE NOTICE README.md CONTRIBUTING.md SECURITY.md RELEASING.md RELEASE_NOTES.md THIRD_PARTY_NOTICES.md package.json package-lock.json electron-builder.json vite.config.mjs build electron src tools
 git diff --cached --stat
 git diff --cached --check
 git diff --cached

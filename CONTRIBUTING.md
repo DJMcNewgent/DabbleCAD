@@ -73,5 +73,5 @@ can help; for platform-specific work, state which OS/architecture you actually t
 Do not describe a build as tested on a platform you did not run.
 
 By contributing, you agree that your contributions may be distributed under this
-project's MIT license. Preserve third-party notices and update them when adding or
+project's Apache License 2.0. Preserve third-party notices and update them when adding or
 changing bundled components.

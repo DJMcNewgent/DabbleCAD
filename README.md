@@ -209,7 +209,8 @@ files publicly. See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License and credits
 
 Created by [DJMcNewgent](https://github.com/DJMcNewgent).
-Licensed under the [MIT License](LICENSE).
+Licensed under the [Apache License 2.0](LICENSE); see [NOTICE](NOTICE).
+Version 1.0.0 was released under the MIT License.
 
 Built with Electron, Three.js, three-mesh-bvh, three-bvh-csg, OpenType.js,
 Clipper, QR Code Generator, and Roboto. See

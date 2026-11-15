@@ -13,11 +13,13 @@
     "build/icon.png",
     "package.json",
     "LICENSE",
+    "NOTICE",
     "THIRD_PARTY_NOTICES.md"
   ],
   "asar": true,
   "extraResources": [
     { "from": "LICENSE", "to": "LICENSE.DabbleCAD.txt" },
+    { "from": "NOTICE", "to": "NOTICE.DabbleCAD.txt" },
     { "from": "THIRD_PARTY_NOTICES.md", "to": "THIRD_PARTY_NOTICES.md" }
   ],
   "npmRebuild": false,

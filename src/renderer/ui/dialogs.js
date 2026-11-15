@@ -68,7 +68,7 @@ export async function settingsDialog(app) {
       row('Auto-save', 'Designs are saved to your library as you work.', toggle(s.autosave !== false, (v) => app.patchSettings({ autosave: v }))),
       isDesktop ? row('Design library', 'Where DabbleCAD keeps your designs.', button({ label: 'Open folder', icon: 'folder', cls: 'btn-outline', onClick: () => platform.openDesignsFolder() })) : null),
     h('div', { class: 'set-group' }, h('h4', {}, 'About'),
-      row(`DabbleCAD ${s.version || ''}`, 'Created by DJMcNewgent · open source under the MIT License.', button({ label: 'About', icon: 'info', cls: 'btn-outline', onClick: () => aboutDialog(app) }))));
+      row(`DabbleCAD ${s.version || ''}`, 'Created by DJMcNewgent · open source under the Apache License 2.0.', button({ label: 'About', icon: 'info', cls: 'btn-outline', onClick: () => aboutDialog(app) }))));
   void pendingRestart;
 }
 
@@ -235,9 +235,9 @@ export function aboutDialog(app) {
     h('div', { class: 'stat-grid' },
       h('span', {}, 'Created by'), h('span', {}, 'DJMcNewgent'),
       h('span', {}, 'GitHub'), h('span', {}, link),
-      h('span', {}, 'License'), h('span', {}, 'MIT License (open source)')),
+      h('span', {}, 'License'), h('span', {}, 'Apache License 2.0 (open source)')),
     h('p', { class: 'modal-text', style: { marginTop: '14px' } },
-      'Copyright © 2026 DJMcNewgent. DabbleCAD is free and open-source software released under the MIT License: you may use, copy, modify and share it, provided the copyright and license notice are kept. It comes with no warranty.'),
+      'Copyright © 2026 DJMcNewgent. DabbleCAD is free and open-source software released under the Apache License, Version 2.0: you may use, copy, modify and share it, provided the copyright, license and notice files are kept and changes are marked. It comes with no warranty.'),
     h('details', { class: 'about-third' }, h('summary', {}, 'Open-source components'),
       h('div', { class: 'stat-grid' }, THIRD_PARTY.flatMap(([n, l]) => [h('span', {}, n), h('span', {}, l)]))),
     h('div', { class: 'modal-actions' }, button({ label: 'Close', cls: 'btn-primary', onClick: () => m.close() })));
