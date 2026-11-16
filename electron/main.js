@@ -143,6 +143,7 @@ function createWindow() {
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: SMOKE ? [`--dabble-smoke-shot-dir=${argValue('shots') || os.tmpdir()}`] : [],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -339,8 +340,7 @@ function runSmoke() {
       await wait(2500);
       if (typeof SMOKE === 'string') {
         const script = fs.readFileSync(SMOKE, 'utf8');
-        const shots = JSON.stringify(String(argValue('shots') || os.tmpdir()).replace(/\\/g, '/'));
-        const result = await win.webContents.executeJavaScript(`(async () => { window.__shotDir = ${shots}; ${script}\n })()`, true);
+        const result = await win.webContents.executeJavaScript(`(async () => { ${script}\n })()`, true);
         console.log('[smoke result]', JSON.stringify(result));
         if (Array.isArray(result?.fails) && result.fails.length) {
           throw new Error('Smoke assertions failed: ' + result.fails.join('; '));

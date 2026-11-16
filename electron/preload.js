@@ -2,6 +2,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const call = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
+const smokeShotDirArg = process.argv.find((arg) => arg.startsWith('--dabble-smoke-shot-dir='));
+if (smokeShotDirArg) {
+  contextBridge.exposeInMainWorld('__shotDir', smokeShotDirArg.slice('--dabble-smoke-shot-dir='.length));
+}
 
 contextBridge.exposeInMainWorld('dabbleNative', {
   getSettings: call('settings:get'),
