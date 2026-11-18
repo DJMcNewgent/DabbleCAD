@@ -46,7 +46,7 @@ npm run package:win
 npm run test:packaged
 ```
 
-Use `npm run package:mac` on a Mac. See [RELEASING.md](RELEASING.md) for both architectures.
+Use `npm run package:mac` on a Mac and `npm run package:linux` on Linux. See [RELEASING.md](RELEASING.md) for both architectures.
 
 ## Code layout
 

@@ -1,7 +1,7 @@
 # Preparing and publishing releases
 
-The release process builds a Windows x64 installer and no-install ZIP, plus separate
-macOS Intel and Apple Silicon DMGs/ZIPs. Desktop editing works offline; dependency
+The release process builds a Windows x64 installer and no-install ZIP, separate
+macOS Intel and Apple Silicon DMGs/ZIPs, and a Linux x64 AppImage. Desktop editing works offline; dependency
 installation, build-tool downloads, and GitHub publishing require internet.
 
 ## Local builds
@@ -17,6 +17,11 @@ npm run test:packaged
 # macOS: DMG + ZIP for Intel and Apple Silicon
 npm run test:all
 npm run package:mac
+npm run test:packaged
+
+# Linux: x64 AppImage (prefix the test commands with xvfb-run -a when headless)
+npm run test:all
+npm run package:linux
 npm run test:packaged
 ```
 
@@ -38,15 +43,17 @@ make the GitHub repository private.
 
 ## GitHub Actions
 
-`.github/workflows/build.yml` tests Windows x64, macOS Intel, and macOS Apple Silicon.
+`.github/workflows/build.yml` builds Windows x64, macOS Intel, macOS Apple Silicon,
+and Linux x64. The Linux job runs the suites under Xvfb with software rendering.
 Branch and manual builds also package and test the resulting apps, then upload
 downloadable workflow artifacts. Pull requests run source tests without publishing.
 
 A pushed `v*` tag additionally:
 
 1. Verifies the tag is exactly `v` plus the version in package.json.
-2. Runs all source and packaged suites offline on all three native platforms.
-3. Requires exactly the six expected non-empty distributables.
+2. Runs the source and packaged suites offline on the native runners that can
+   create a WebGL view.
+3. Requires exactly the seven expected non-empty distributables.
 4. Generates `SHA256SUMS.txt`.
 5. Creates a **draft** GitHub Release with the files and `RELEASE_NOTES.md`.
 
@@ -92,6 +99,8 @@ No personal token needs to be committed or pasted into a workflow.
 - Manually install/uninstall the Windows installer without deleting your design
   library. Test the ZIP after extraction into a clean folder.
 - Launch both Mac builds on their respective hardware and verify OS trust behavior.
+- Launch the AppImage on a desktop Linux system with a real GPU. `test:packaged`
+  covers the unpacked app under software rendering, not the AppImage itself.
 - Test offline launch, editing, save/reopen, file import/export, and native close/
   restart prompts. Keep known geometry limitations in the notes.
 - Validate any claimed laser/controller support with appropriate supervised
@@ -105,7 +114,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Wait for all jobs to pass. Open the draft under Releases, inspect its six files and
+Wait for all jobs to pass. Open the draft under Releases, inspect its seven files and
 checksums, download and check the distributions, and publish the draft only when
 ready. A rerun will not overwrite an existing release automatically: if creation
 reports that a release already exists, inspect that release before taking action.

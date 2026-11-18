@@ -45,5 +45,12 @@
     "hardenedRuntime": false,
     "notarize": false
   },
+  "linux": {
+    "icon": "build/icon.png",
+    "category": "Graphics",
+    "executableName": "dabblecad",
+    "target": [{ "target": "AppImage", "arch": ["x64"] }],
+    "artifactName": "${productName}-${version}-linux-x64.${ext}"
+  },
   "publish": null
 }

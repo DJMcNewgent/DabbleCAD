@@ -34,6 +34,12 @@ jobs:
             # Hosted Intel Macs have no GPU and cannot create the WebGL view, so this
             # build is packaged without running the suites.
             skip_tests: true
+          - name: Linux x64
+            os: ubuntu-24.04
+            args: --linux --x64
+            artifact: linux-x64
+            # Hosted Linux runners have no display, so the suites run under Xvfb.
+            test_prefix: xvfb-run -a
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
@@ -53,9 +59,14 @@ jobs:
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + version + '\n');
       - run: npm ci
+      - name: Allow the Chromium sandbox on the Linux runner
+        if: runner.os == 'Linux'
+        # Ubuntu 24.04 blocks unprivileged user namespaces, which Electron's sandbox
+        # needs when its helper is not installed setuid. This affects the runner only.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Test all workspaces offline
         if: ${{ !matrix.skip_tests }}
-        run: npm run test:all
+        run: ${{ matrix.test_prefix }} npm run test:all
       - name: Build without tests
         if: ${{ matrix.skip_tests }}
         run: npm run build
@@ -64,7 +75,7 @@ jobs:
         run: npx --no-install electron-builder ${{ matrix.args }} --publish never
       - name: Test packaged apps offline
         if: ${{ github.event_name != 'pull_request' && !matrix.skip_tests }}
-        run: npm run test:packaged
+        run: ${{ matrix.test_prefix }} npm run test:packaged
       - name: Upload distributables
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -77,6 +88,7 @@ jobs:
             release/${{ steps.version.outputs.version }}/DabbleCAD-*.exe
             release/${{ steps.version.outputs.version }}/DabbleCAD-*.zip
             release/${{ steps.version.outputs.version }}/DabbleCAD-*.dmg
+            release/${{ steps.version.outputs.version }}/DabbleCAD-*.AppImage
 
   draft-release:
     name: Create draft release
@@ -96,7 +108,7 @@ jobs:
           pattern: DabbleCAD-*
           path: release-assets
           merge-multiple: true
-      - name: Verify all six artifacts and generate checksums
+      - name: Verify all seven artifacts and generate checksums
         shell: node {0}
         run: |
           const fs = require('node:fs');
@@ -110,6 +122,7 @@ jobs:
             `DabbleCAD-${version}-mac-arm64.zip`,
             `DabbleCAD-${version}-mac-x64.dmg`,
             `DabbleCAD-${version}-mac-x64.zip`,
+            `DabbleCAD-${version}-linux-x64.AppImage`,
           ].sort();
           const actual = fs.readdirSync('release-assets').sort();
           if (JSON.stringify(actual) !== JSON.stringify(names)) {

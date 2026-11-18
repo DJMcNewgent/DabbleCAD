@@ -66,6 +66,9 @@ if (argValue('software')) settings.gpu = 'off';
 const hardwareAcceleration = settings.gpu !== 'off';
 if (!hardwareAcceleration) {
   app.disableHardwareAcceleration();
+  // Linux builds of Chromium only create a software WebGL context when asked to.
+  // The app renders its own bundled files, never remote content.
+  if (process.platform === 'linux') app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 } else {
   // Prefer the discrete / high-performance adapter on multi-GPU machines.
   app.commandLine.appendSwitch('force_high_performance_gpu');

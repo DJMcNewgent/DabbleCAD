@@ -17,8 +17,10 @@ if (appArg) {
   executable = path.join(root, 'release', version, 'win-unpacked', 'DabbleCAD.exe');
 } else if (process.platform === 'darwin') {
   executable = path.join(root, 'release', version, process.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DabbleCAD.app', 'Contents', 'MacOS', 'DabbleCAD');
+} else if (process.platform === 'linux') {
+  executable = path.join(root, 'release', version, 'linux-unpacked', 'dabblecad');
 } else {
-  throw new Error('Packaged smoke tests currently support Windows and macOS only');
+  throw new Error('Packaged smoke tests currently support Windows, macOS, and Linux only');
 }
 if (!fs.existsSync(executable)) throw new Error('Build the app first; executable not found: ' + executable);
 
@@ -26,7 +28,8 @@ const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'dabblecad-test-shots-'));
 const suites = ['smoke3.js', 'smoke-laser.js', 'smoke-depth.js', 'smoke6.js', 'smoke-save.js'];
-// Windows tests on its built-in software adapter. Macs have no software WebGL, so they
+// Windows and Linux test on software rendering (Linux needs a display, such as
+// xvfb-run on a headless machine). Macs have no software WebGL, so they
 // test on the GPU (hosted Apple Silicon runners have one; hosted Intel runners do not).
 let modes = process.platform === 'darwin' ? [[]] : [['--software']];
 let failed = false;
