@@ -22,6 +22,8 @@ See [first launch](#first-launch) for the one-time security prompt.
 [Ask a question](https://github.com/DJMcNewgent/DabbleCAD/discussions) ·
 [Contribute](CONTRIBUTING.md)
 
+![Resizing a box on the workplane and orbiting the view in DabbleCAD](docs/demo.gif)
+
 ## Screenshots
 
 **3D Design** — drag shapes onto the workplane, resize them, and combine them into parts.
