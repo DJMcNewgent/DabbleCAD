@@ -2,16 +2,21 @@
 
 # DabbleCAD
 
-**An offline, open-source alternative to Tinkercad for 3D design and 3D printing.**
+**One offline, open-source app for 3D design, laser projects, and depth maps.**
 
-DabbleCAD is inspired by Tinkercad's shape-based workflow, but runs locally with no
-account. If you've designed that way in a web browser, this will feel familiar: drag shapes onto a workplane, stretch and rotate them, turn
-some into holes, group them into one part, and export an STL or 3MF for your slicer.
-The difference is that DabbleCAD is a desktop app. It runs locally, your designs stay
-on your computer, and it needs no account and no internet connection.
+DabbleCAD puts three maker tools in a single desktop app, saved together in one design:
 
-It also includes a laser workspace and depth-map tools, so you can keep making
-without switching apps.
+- **3D Design:** shape-based modeling inspired by Tinkercad. Drag shapes onto a
+  workplane, stretch and rotate them, turn some into holes, group them into one part,
+  and export an STL or 3MF for your slicer.
+- **Laser:** draw or import artwork, set up layers, preview the job, and export
+  G-code or send it to a GRBL-compatible laser over USB.
+- **Depth Map Studio:** turn a 3D model or an image into a height map for relief
+  engraving.
+
+Model a part, bring its outline into the laser workspace, or turn it into a relief,
+without exporting and re-importing between apps. DabbleCAD runs locally, your designs
+stay on your computer, and it needs no account and no internet connection.
 
 **[Download the latest release](https://github.com/DJMcNewgent/DabbleCAD/releases/latest)**
 for Windows or Mac. It is free, and there is nothing to sign up for.
