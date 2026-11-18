@@ -77,7 +77,11 @@ Each release is configured to provide:
 - **Mac, Intel:** `DabbleCAD-VERSION-mac-x64.dmg` and `.zip`.
   Open the DMG and drag DabbleCAD to Applications, or extract the ZIP and move the
   `.app` bundle to Applications. Choose the build matching **About This Mac**.
-- **Checksums:** `SHA256SUMS.txt` for verifying the six downloads.
+- **Linux x64 AppImage:** `DabbleCAD-VERSION-linux-x64.AppImage`, starting with
+  the release after 1.0.0. Mark it executable (`chmod +x`), then run it. It passes
+  the automated suites with software rendering but has not yet been checked by hand
+  on desktop Linux distributions; reports are welcome.
+- **Checksums:** `SHA256SUMS.txt` for verifying the downloads.
 
 These initial builds do **not** have a trusted publisher signature or Apple
 notarization. Windows SmartScreen and macOS Gatekeeper may warn or block launch.
@@ -164,7 +168,7 @@ unchanged, except that deleting a design still removes that copy.
 
 Press `?` for the full shortcut list. Dark and light themes, graphics settings,
 shadows, and edge display are available in Settings. If the graphics driver crashes
-repeatedly, the app can fall back to software rendering (Windows only; a Mac needs a working GPU).
+repeatedly, the app can fall back to software rendering (Windows and Linux; a Mac needs a working GPU).
 
 ## Run from source
 
@@ -183,6 +187,7 @@ npm start
 - `npm run test:all`: run all five functional suites with HTTP/WebSocket requests blocked.
 - `npm run package:win`: Windows installer and portable ZIP; run on Windows.
 - `npm run package:mac`: Intel and Apple Silicon DMG/ZIP builds; run on macOS.
+- `npm run package:linux`: x64 AppImage; run on Linux.
 - `npm run test:packaged`: run the same offline suites against the packaged app
   for the host architecture.
 
