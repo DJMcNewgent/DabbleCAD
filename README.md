@@ -13,9 +13,16 @@ on your computer, and it needs no account and no internet connection.
 It also includes a laser workspace and depth-map tools, so you can keep making
 without switching apps.
 
-[Releases](https://github.com/DJMcNewgent/DabbleCAD/releases) ·
+**[Download the latest release](https://github.com/DJMcNewgent/DabbleCAD/releases/latest)**
+for Windows or Mac. It is free, and there is nothing to sign up for.
+See [first launch](#first-launch) for the one-time security prompt.
+
+[All releases](https://github.com/DJMcNewgent/DabbleCAD/releases) ·
 [Report a bug](https://github.com/DJMcNewgent/DabbleCAD/issues) ·
+[Ask a question](https://github.com/DJMcNewgent/DabbleCAD/discussions) ·
 [Contribute](CONTRIBUTING.md)
+
+![Resizing a box on the workplane and orbiting the view in DabbleCAD](docs/demo.gif)
 
 ## Screenshots
 
@@ -63,10 +70,11 @@ automatic updater or cloud sync.
 ## Download and install
 
 Published builds are attached to [GitHub Releases](https://github.com/DJMcNewgent/DabbleCAD/releases),
-not GitHub's automatically generated **Source code** archives. Until the first
-release is published, use the source instructions below.
+not GitHub's automatically generated **Source code** archives. Open the
+[latest release](https://github.com/DJMcNewgent/DabbleCAD/releases/latest) and
+pick the file for your computer under **Assets**.
 
-Each release is configured to provide:
+Each release provides:
 
 - **Windows x64 installer:** `DabbleCAD-VERSION-win-x64-setup.exe`.
   Run the installer and choose the installation folder.
@@ -88,6 +96,30 @@ notarization. Windows SmartScreen and macOS Gatekeeper may warn or block launch.
 Mac builds use an ad-hoc signature, not a verified Developer ID. Only use downloads
 from this repository and compare their checksums. Do not disable your computer's
 security protections globally; see [release guidance](RELEASING.md#unsigned-builds).
+
+### First launch
+
+Because the builds are not signed by a trusted publisher, your computer asks once
+before running DabbleCAD. Check the download against `SHA256SUMS.txt` first, then
+approve only this app:
+
+**Windows**
+
+1. Run the installer, or `DabbleCAD.exe` from the extracted ZIP.
+2. If a blue **Windows protected your PC** window appears, select **More info**.
+3. Confirm the app name, then select **Run anyway**.
+
+**Mac**
+
+1. Open DabbleCAD from Applications. macOS says it could not verify the app;
+   select **Done**.
+2. Open **System Settings → Privacy & Security** and scroll to **Security**.
+3. Next to the DabbleCAD message, select **Open Anyway**, then confirm.
+
+On macOS 14 and earlier, Control-click the app and choose **Open** instead.
+You only need to do this the first time. If the prompt does not offer these
+choices, your computer may be managed by an organization that blocks unsigned
+apps; DabbleCAD does not work around that.
 
 ### Where designs live
 
