@@ -144,5 +144,40 @@ ed.select([d1.id]);
   out.flushHoleVerts = gv; check('flush-holes-mesh-size', gv > 100 && gv < 6000, gv);
   ed.deleteSelection();
 }
+
+// Thin strokes and counters must stay closed in the exported beveled mesh.
+for (const label of ['IOB', 'g']) {
+  const text = add('text', 200, 200);
+  text.params.text = label;
+  text.params.font = 'Sans';
+  text.params.bevel = 1.5;
+  ed.select([text.id]);
+  const { data } = await lib.io.exportModel(ed, 'stl', { selectedOnly: true });
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const triangles = view.getUint32(80, true);
+  const edges = new Map(), layers = new Set();
+  let degenerate = 0;
+  for (let i = 0; i < triangles; i++) {
+    const offset = 84 + i * 50;
+    if ([0, 4, 8].every((axis) => view.getFloat32(offset + axis, true) === 0)) degenerate++;
+    const vertices = [12, 24, 36].map((vertex) => {
+      const point = [0, 4, 8].map((axis) => view.getFloat32(offset + vertex + axis, true));
+      layers.add(point[2]);
+      return point.join(',');
+    });
+    for (let j = 0; j < 3; j++) {
+      const a = vertices[j], b = vertices[(j + 1) % 3];
+      const key = a < b ? a + ';' + b : b + ';' + a;
+      const counts = edges.get(key) || [0, 0];
+      counts[a < b ? 0 : 1]++;
+      edges.set(key, counts);
+    }
+  }
+  const openEdges = [...edges.values()].filter(([forward, reverse]) => forward !== 1 || reverse !== 1).length;
+  check('beveled-text-stl-is-closed-' + label, triangles > 0 && openEdges === 0 && degenerate === 0, { openEdges, degenerate });
+  check('beveled-text-keeps-a-bevel-' + label, layers.size > 2, layers.size);
+  ed.deleteSelection();
+}
+
 out.nodes = ed.doc.nodes.length; out.fails = fails; out.csg = lib.geometry.stats;
 return out;

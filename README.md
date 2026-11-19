@@ -235,8 +235,9 @@ checksums, unsigned builds, and the public-release checklist.
 
 DabbleCAD is an early project, not a claim of production certification.
 
-- Beveled text can produce non-manifold meshes. Avoid beveling text for printable
-  solids and inspect exported meshes in a slicer.
+- Text bevels may be reduced or omitted if the requested inset leaves unmatched
+  edges or creates degenerate triangles. Inspect exports in a slicer, especially
+  with unusual fonts or overlapping glyphs.
 - Complex imported geometry and advanced SVG/DXF/3MF features need inspection.
 - Estimates and suggested laser settings are not material-specific calibration.
 - Real laser hardware, native close dialogs, installation, and operating-system
