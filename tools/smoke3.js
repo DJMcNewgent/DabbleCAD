@@ -135,6 +135,18 @@ vp.canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId
 check('context-menu', !!document.querySelector('.menu') && document.querySelectorAll('.menu-item').length > 10);
 document.querySelectorAll('.menu').forEach((m) => m.remove());
 ed.select([d1.id]);
+// edit the parts of a group without ungrouping
+{
+  const p1 = add('box', -200, 200), p2 = add('cylinder', -190, 200);
+  ed.select([p1.id, p2.id]); await ed.group('union');
+  const grp = ed.selectedNodes()[0]; grp.name = 'Bracket'; const before = ed.doc.nodes.length;
+  check('enter-group', ed.enterGroup(grp) === true && ed.doc.nodes.length === before + 1 && !!ed.editing);
+  const extra = add('sphere', -180, 200);
+  await ed.exitGroup();
+  const again = ed.selectedNodes()[0];
+  check('exit-group', !ed.editing && ed.doc.nodes.length === before && again && again.type === 'group' && again.children.length === 3 && again.name === 'Bracket', again && [again.type, again.children && again.children.length, again.name]);
+  ed.deleteSelection();
+}
 // regression: flush, overlapping holes used to explode the mesh and crash the window
 {
   const bb = add('box', 200, 200); ed.select([bb.id]); ed.setSize('x', 80); ed.setSize('y', 60);
