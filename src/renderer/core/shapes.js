@@ -1,6 +1,7 @@
 // Shape library: parametric builders (Z-up, nominal 20 mm) and the shape-panel catalog.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { textShapes } from './fonts.js';
 import { makeShape, makeGroup, uid, cloneNode } from './doc.js';
 
@@ -64,6 +65,32 @@ export function extrude(shapes, depth, { bevel = 0, bevelSegments = 2, curveSegm
     depth: b > 0 ? depth - 2 * b : depth, steps: 1, curveSegments,
     bevelEnabled: b > 0, bevelThickness: b, bevelSize: b, bevelOffset: -b, bevelSegments: Math.max(1, Math.round(bevelSegments)),
   });
+}
+
+function hasClosedTextMesh(geometry) {
+  // Use the same position-only weld as the primitive mesh pipeline before export.
+  const positionsOnly = new THREE.BufferGeometry();
+  positionsOnly.setAttribute('position', geometry.attributes.position);
+  const welded = mergeVertices(positionsOnly);
+  const indices = welded.index.array, positions = welded.attributes.position;
+  const triangle = new THREE.Triangle(), edges = new Map();
+  const addEdge = (a, b) => {
+    const forward = a < b;
+    const key = forward ? a + ':' + b : b + ':' + a;
+    const direction = forward ? 1 : -1;
+    const first = edges.get(key);
+    if (first !== undefined && first !== -direction) return false;
+    edges.set(key, first === undefined ? direction : 0);
+    return true;
+  };
+  if (indices.length === 0) return false;
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = indices[i], b = indices[i + 1], c = indices[i + 2];
+    const area = triangle.setFromAttributeAndIndices(positions, a, b, c).getArea();
+    if (!(area > 0) || !addEdge(a, b) || !addEdge(b, c) || !addEdge(c, a)) return false;
+  }
+  for (const direction of edges.values()) if (direction !== 0) return false;
+  return true;
 }
 
 // Extrude a profile drawn in the X-Z plane along Y (centred), e.g. roofs and wedges.
@@ -455,7 +482,17 @@ export const KINDS = {
     build: (p) => {
       const shapes = textShapes(p.text && p.text.length ? p.text : ' ', p.font, 14, p.align);
       if (!shapes.length) return new THREE.BoxGeometry(6, 14, 6);
-      return extrude(shapes, 6, { bevel: p.bevel, bevelSegments: p.segments, curveSegments: 6 });
+      // Deep insets can collapse narrow strokes or the gap between counters.
+      const depth = 6;
+      for (let bevel = clamp(p.bevel, 0, depth / 2 - 0.01); bevel > 0;) {
+        const geometry = extrude(shapes, depth, { bevel, bevelSegments: p.segments, curveSegments: 6 });
+        if (hasClosedTextMesh(geometry)) return geometry;
+        geometry.dispose();
+        const next = Math.max(0.01, bevel / 2);
+        if (next >= bevel) break;
+        bevel = next;
+      }
+      return extrude(shapes, depth, { curveSegments: 6 });
     },
   },
   extrusion: {
