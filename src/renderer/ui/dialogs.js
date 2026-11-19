@@ -154,8 +154,55 @@ const SHORTCUTS = [
     ['Group (union)', 'Ctrl + G'], ['Intersect group', 'Ctrl + I'], ['Bundle', 'Ctrl + B'], ['Ungroup', 'Ctrl + Shift + G'], ['Add to / remove from selection', 'Shift + click'], ['Box select', 'Drag on empty space']]],
 ];
 
-export function shortcutsDialog() {
+const WELCOME = [
+  ['Welcome to DabbleCAD', 'Build things for 3D printing by combining simple shapes. This short guide covers the basics; it takes about a minute.', [
+    'Everything runs on this computer. Your designs are saved here automatically.',
+    'You can reopen this guide any time from the ? button in the top bar.']],
+  ['1. Put a shape on the workplane', null, [
+    'Drag a shape from the panel on the right onto the grid, or click it and then click where you want it.',
+    'Sketch lets you draw an exact outline with typed sizes. Generators make real-size bolts, nuts, hinges and boxes.']],
+  ['2. Move, size and turn it', null, [
+    'Drag a shape to move it. Drag the white squares to resize; click a size label to type an exact number.',
+    'Drag the black cone to lift it off the workplane, and the curved arrows to rotate.',
+    'Arrow keys nudge the selection. Ctrl + Z undoes anything.']],
+  ['3. Look around', null, [
+    'Right-drag to orbit, middle-drag (or Shift + right-drag) to pan, scroll to zoom.',
+    'Press F to zoom to the selection, or click a face of the cube in the top-left corner.']],
+  ['4. Cut holes and join parts', null, [
+    'Select a shape and choose Hole to turn it into a cutting tool.',
+    'Select the hole together with a solid and press Group: the hole is cut out and the parts become one.',
+    'Double-click a group to change its parts later, or press Ungroup to split it again.']],
+  ['5. Print it', null, [
+    'Press Export. Print check looks for problems such as parts floating in mid-air or walls too thin to print.',
+    'Save an STL or 3MF for your slicer, or send it straight there with Open in slicer.',
+    'The Laser tab at the top has its own workspace for cutting, engraving and depth maps.']],
+];
+
+export function welcomeDialog(app) {
+  let step = 0;
+  const m = modal({ title: 'Getting started', width: 560, onClose: () => { if (app.settings.welcomeSeen !== true) app.patchSettings({ welcomeSeen: true }); } });
+  const body = h('div', { class: 'welcome-step' });
+  const dots = h('div', { class: 'welcome-dots', 'aria-hidden': 'true' });
+  const back = button({ label: 'Back', cls: 'btn-outline', onClick: () => { step -= 1; render(); } });
+  const next = button({ label: 'Next', cls: 'btn-primary', onClick: () => { if (step === WELCOME.length - 1) m.close(); else { step += 1; render(); } } });
+  function render() {
+    const [title, intro, points] = WELCOME[step];
+    clear(body);
+    body.append(h('h3', {}, title), ...(intro ? [h('p', {}, intro)] : []), h('ul', {}, points.map((p) => h('li', {}, p))));
+    clear(dots);
+    WELCOME.forEach((_, i) => dots.append(h('i', { class: i === step ? 'on' : '' })));
+    back.style.visibility = step ? '' : 'hidden';
+    next.querySelector('.btn-label').textContent = step === WELCOME.length - 1 ? 'Start designing' : 'Next';
+    m.el.setAttribute('aria-label', 'Getting started: ' + title);
+  }
+  m.body.append(body, h('div', { class: 'modal-actions' }, dots, back, next));
+  render();
+  return m;
+}
+
+export function shortcutsDialog(app) {
   const m = modal({ title: 'Keyboard and mouse shortcuts', width: 760 });
+  if (app) m.body.append(h('div', { style: { marginBottom: '12px' } }, button({ label: 'Show the getting-started guide', cls: 'btn-outline', onClick: () => { m.close(); welcomeDialog(app); } })));
   m.body.append(h('div', { class: 'shortcut-cols' }, SHORTCUTS.map(([title, rows]) =>
     h('div', { class: 'shortcut-group' }, h('h4', {}, title), rows.map(([a, b]) => h('div', { class: 'shortcut-row' }, h('span', {}, a), h('span', { class: 'kbd' }, b)))))));
 }

@@ -245,7 +245,7 @@ ipcMain.on('serial:choose', (_e, id) => {
   pendingSerial = null;
   cb(id || '');
 });
-ipcMain.handle('settings:get', () => ({ ...settings, hardwareAcceleration, platform: process.platform, version: app.getVersion() }));
+ipcMain.handle('settings:get', () => ({ ...settings, hardwareAcceleration, platform: process.platform, version: app.getVersion(), smoke: !!SMOKE }));
 ipcMain.handle('settings:set', (_e, patch) => {
   settings = { ...settings, ...patch };
   if (patch && patch.theme) nativeTheme.themeSource = settings.theme === 'light' ? 'light' : 'dark';

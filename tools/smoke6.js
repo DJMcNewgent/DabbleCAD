@@ -73,7 +73,7 @@ out.gpuBox = (document.querySelector('.gpu-box') || {}).textContent; key('Escape
 await wait(100);
 document.querySelector('.btn[title^="Download"]').click(); await wait(200); await shot('n-export'); document.querySelector('.modal-head .btn').click();
 document.querySelector('.btn[title^="Workplane size"]').click(); await wait(200); await shot('o-grid'); document.querySelector('.modal-head .btn').click();
-document.querySelector('.btn[title^="Keyboard shortcuts"]').click(); await wait(200); await shot('p-shortcuts'); document.querySelector('.modal-head .btn').click();
+document.querySelector('.btn[title^="Help: shortcuts"]').click(); await wait(200); await shot('p-shortcuts'); document.querySelector('.modal-head .btn').click();
 ed.select([base.id, ball.id]); document.querySelector('.btn[title^="Size, volume"]').click(); await wait(200); await shot('q-stats'); document.querySelector('.modal-head .btn').click();
 
 // scribble: draw two strokes, finish, expect a new extrusion
@@ -89,6 +89,25 @@ check('scribble', ed.doc.nodes.length === before + 1 && ed.selectedNodes()[0].ki
 const sb = ed.bounds(ed.selectedNodes()); out.scribbleSize = [sb.max.x - sb.min.x, sb.max.y - sb.min.y, sb.max.z - sb.min.z].map((v) => +v.toFixed(1));
 ed.clearSelection(); vp.home(); await wait(500);
 await shot('s-final');
+// accessibility basics and the getting-started guide
+{
+  const unnamed = [...document.querySelectorAll('button.btn')].filter((b) => !b.textContent.trim() && !b.getAttribute('aria-label'));
+  check('icon-buttons-named', unnamed.length === 0, unnamed.length);
+  check('toolbar-roles', document.querySelectorAll('[role="toolbar"]').length >= 2 && !!document.querySelector('.shape-tile[role="button"][tabindex="0"]'));
+  const wm = lib.dialogs.welcomeDialog(app); await wait(120);
+  check('welcome-dialog', wm.el.getAttribute('role') === 'dialog' && wm.el.getAttribute('aria-modal') === 'true' && wm.el.contains(document.activeElement), document.activeElement && document.activeElement.tagName);
+  const nextBtn = [...wm.el.querySelectorAll('button')].find((b) => b.textContent === 'Next');
+  for (let i = 0; i < 5; i++) nextBtn.click();
+  check('welcome-last-step', nextBtn.textContent === 'Start designing' && wm.el.querySelector('h3').textContent.startsWith('5.'), nextBtn.textContent);
+  check('welcome-no-null', !wm.el.textContent.includes('null'));
+  await shot('u-welcome');
+  nextBtn.click(); await wait(60);
+  check('welcome-closed', !document.querySelector('.modal') && app.settings.welcomeSeen === true);
+  const tile = document.querySelector('.shape-tile'); const n0 = ed.doc.nodes.length;
+  tile.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  check('tile-keyboard', ed.doc.nodes.length === n0 + 1);
+  ed.deleteSelection();
+}
 // sketch: an L-shaped plate with a round cut-out becomes one extrusion with a hole
 {
   const before = ed.doc.nodes.length;
