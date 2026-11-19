@@ -12,6 +12,7 @@ import { Inspector } from './ui/inspector.js';
 import { ShapesPanel } from './ui/shapespanel.js';
 import { Dashboard } from './ui/dashboard.js';
 import { scribbleDialog } from './ui/scribble.js';
+import { sketchDialog } from './ui/sketch.js';
 import { settingsDialog, gridDialog, exportDialog, shortcutsDialog, statsDialog, patternDialog, noteDialog, aboutDialog, saveChangesDialog } from './ui/dialogs.js';
 import { newDoc, serializeDoc, deserializeDoc, uid, walk, countShapes } from './core/doc.js';
 import { initFonts, ensureFont } from './core/fonts.js';
@@ -180,6 +181,7 @@ export class App {
     });
     ed.on('dblclick', (node) => {
       if (node.type === 'shape' && node.kind === 'text') { this.inspector.open.params = true; this.inspector.render(); this.inspector.focusText(); }
+      else if (node.type === 'shape' && node.kind === 'extrusion' && node.params.sketch) this.openSketch(node);
       else if (node.type === 'shape' && node.kind === 'extrusion' && node.params.image) this.openScribble(node);
       else if (node.type === 'group' && !ed.editing) ed.enterGroup(node);
     });
@@ -452,6 +454,22 @@ export class App {
   _fileBase() { return (this.editor.doc.name || 'design').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'design'; }
 
   // ---------------------------------------------------------------- scribble
+  async openSketch(node) {
+    const res = await sketchDialog(node ? node.params.sketch : null);
+    if (!res) return;
+    const ed = this.editor;
+    if (node && ed.node(node.id)) {
+      node.params = { ...node.params, polys: res.polys, sketch: res.sketch, depth: res.depth, pid: uid('p') };
+      ed.sync();
+      ed.commit();
+      ed.emit('selection');
+    } else {
+      const n = extrusionNode(res.polys, 'Sketch', res.depth, { sketch: res.sketch });
+      n.color = '#3fa7a3';
+      ed.addAtViewCenter(n);
+    }
+  }
+
   async openScribble(node) {
     const res = await scribbleDialog(node ? node.params.image : null);
     if (!res) return;

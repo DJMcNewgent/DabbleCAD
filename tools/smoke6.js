@@ -89,5 +89,20 @@ check('scribble', ed.doc.nodes.length === before + 1 && ed.selectedNodes()[0].ki
 const sb = ed.bounds(ed.selectedNodes()); out.scribbleSize = [sb.max.x - sb.min.x, sb.max.y - sb.min.y, sb.max.z - sb.min.z].map((v) => +v.toFixed(1));
 ed.clearSelection(); vp.home(); await wait(500);
 await shot('s-final');
+// sketch: an L-shaped plate with a round cut-out becomes one extrusion with a hole
+{
+  const before = ed.doc.nodes.length;
+  const pending = app.openSketch(null); await wait(250);
+  const sk = document.querySelector('.modal').__sketch;
+  sk.add({ type: 'rect', x: 0, y: 0, w: 40, h: 10, cut: false });
+  sk.add({ type: 'rect', x: 0, y: 0, w: 10, h: 30, cut: false });
+  sk.add({ type: 'circle', cx: 30, cy: 5, r: 3, cut: true });
+  await shot('t-sketch');
+  sk.done(); await pending;
+  const sn = ed.selectedNodes()[0]; const sbb = ed.bounds([sn]);
+  out.sketch = [sn && sn.params.polys.length, sn && sn.params.polys[0].holes.length, +(sbb.max.x - sbb.min.x).toFixed(1), +(sbb.max.y - sbb.min.y).toFixed(1), +(sbb.max.z - sbb.min.z).toFixed(1)];
+  check('sketch-shape', ed.doc.nodes.length === before + 1 && sn.params.polys.length === 1 && sn.params.polys[0].holes.length === 1 && out.sketch[2] === 40 && out.sketch[3] === 30 && out.sketch[4] === 10 && !!sn.params.sketch, out.sketch);
+  check('sketch-solid', lib.solid.inspectSolid(lib.geometry.getGeometry(sn)).closed === true);
+}
 out.fails = fails; out.csg = lib.geometry.stats;
 return out;

@@ -80,7 +80,7 @@ export class ShapesPanel {
       const n = nodeFromCatalog(entry);
       return n;
     }).then((url) => { if (url) { img.src = url; img.style.visibility = ''; } });
-    const tile = h('div', { class: 'shape-tile', title: entry.special === 'scribble' ? 'Scribble: draw your own shape' : `${entry.name}: drag onto the workplane, or click then click to place` }, img, h('span', {}, entry.name));
+    const tile = h('div', { class: 'shape-tile', title: entry.special === 'scribble' ? 'Scribble: draw your own shape' : entry.special === 'sketch' ? 'Sketch: draw an exact outline with typed sizes, then pull it into 3D' : `${entry.name}: drag onto the workplane, or click then click to place` }, img, h('span', {}, entry.name));
     if (entry.cat === 'mine') {
       const del = h('button', { class: 'shape-del', type: 'button', title: 'Remove from Your Creations' }, '×');
       del.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -96,8 +96,8 @@ export class ShapesPanel {
     tile.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
-      if (entry.special === 'scribble') {
-        const upOnce = () => { window.removeEventListener('pointerup', upOnce); this.app.openScribble(null); };
+      if (entry.special === 'scribble' || entry.special === 'sketch') {
+        const upOnce = () => { window.removeEventListener('pointerup', upOnce); if (entry.special === 'sketch') this.app.openSketch(null); else this.app.openScribble(null); };
         window.addEventListener('pointerup', upOnce);
         return;
       }

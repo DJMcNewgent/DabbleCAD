@@ -426,3 +426,14 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .pc-bed-inputs { display: flex; gap: 8px; align-items: center; } .pc-bed-inputs .input { width: 84px; }
 .set-btns { display: flex; gap: 6px; }
 .toast a { color: inherit; text-decoration: underline; }
+
+/* sketch editor */
+.sketch-main { display: flex; gap: 14px; align-items: flex-start; }
+.sketch-canvas { width: 760px; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; cursor: crosshair; touch-action: none; outline: none; }
+.sketch-canvas:focus-visible { box-shadow: 0 0 0 2px var(--accent, #4c8dff); }
+.sketch-side { width: 240px; flex: none; display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow: auto; }
+.sketch-side h4 { margin: 6px 0 0; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
+.sketch-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.sketch-field .input { width: 96px; }
+.sketch-point { display: flex; gap: 6px; align-items: center; } .sketch-point > span { width: 16px; opacity: .6; font-size: 12px; }
+.sketch-point .sketch-field .input { width: 70px; } .sketch-points { display: flex; flex-direction: column; gap: 4px; }
