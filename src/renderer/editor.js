@@ -61,6 +61,7 @@ export class Editor extends Emitter {
 
   // ---------------------------------------------------------------- document lifecycle
   load(doc) {
+    this.editing = null;
     this.doc = doc;
     this.selection.clear();
     this.setFrame(null);
@@ -732,6 +733,52 @@ export class Editor extends Emitter {
     this.sync();
     this.commit();
     this.emit('selection');
+  }
+
+  /** Open a group for editing: its parts become ordinary shapes until exitGroup(). */
+  enterGroup(node) {
+    if (this.editing || !node || node.type !== 'group' || node.locked) return false;
+    const gm = mat4(node.matrix);
+    const kids = node.children.map((c) => {
+      const k = cloneNode(c);
+      gm.clone().multiply(mat4(c.matrix)).toArray(k.matrix);
+      return k;
+    });
+    const at = this.doc.nodes.indexOf(node);
+    if (at < 0) return false;
+    const outside = new Set(this.doc.nodes.filter((n) => n.id !== node.id).map((n) => n.id));
+    this.doc.nodes.splice(at, 1, ...kids);
+    this.editing = { id: node.id, mode: node.mode, name: node.name, color: node.color, hole: node.hole, multicolor: node.multicolor, transparent: node.transparent, outside };
+    this.selection = new Set();
+    this.sync();
+    this.commit();
+    this.emit('selection');
+    this.emit('editing', true);
+    return true;
+  }
+
+  /** Close the group opened with enterGroup(), re-combining its parts (and anything added meanwhile). */
+  async exitGroup() {
+    const e = this.editing;
+    if (!e) return;
+    this.editing = null;
+    // undo may have brought the original group back; then there is nothing to rebuild
+    if (!this.doc.nodes.some((n) => n.id === e.id)) {
+      const members = this.doc.nodes.filter((n) => !e.outside.has(n.id));
+      if (members.length >= 2) {
+        for (const m of members) m.locked = false;
+        this.selection = new Set(members.map((n) => n.id));
+        await this.group(e.mode);
+        const g = this.selectedNodes()[0];
+        if (g && g.type === 'group') {
+          Object.assign(g, { name: e.name, color: e.color, multicolor: e.multicolor, transparent: e.transparent, hole: e.hole });
+          this.sync();
+          this.commit();
+          this.emit('selection');
+        }
+      }
+    }
+    this.emit('editing', false);
   }
 
   /** Run a potentially slow job after letting the busy indicator paint. */

@@ -169,6 +169,7 @@ export class App {
     ed.on('transform', () => this._updateStatus());
     ed.on('history', () => this._updateButtons());
     ed.on('tool', () => { this._updateButtons(); this._updateBanner(); });
+    ed.on('editing', () => { this._updateBanner(); this._updateButtons(); });
     ed.on('busy', (on) => this.viewEl.classList.toggle('busy', on));
     ed.on('contextmenu', (e) => this._contextMenu(e));
     ed.on('note-new', async (pos) => { const text = await noteDialog('', true); if (text) ed.addNote(pos, text); });
@@ -179,6 +180,7 @@ export class App {
     ed.on('dblclick', (node) => {
       if (node.type === 'shape' && node.kind === 'text') { this.inspector.open.params = true; this.inspector.render(); this.inspector.focusText(); }
       else if (node.type === 'shape' && node.kind === 'extrusion' && node.params.image) this.openScribble(node);
+      else if (node.type === 'group' && !ed.editing) ed.enterGroup(node);
     });
     document.addEventListener('keydown', (e) => this._key(e));
     window.addEventListener('dragover', (e) => e.preventDefault());
@@ -611,6 +613,7 @@ export class App {
     }[ed.tool];
     clear(this.banner);
     if (text) this.banner.append(h('span', {}, text), h('kbd', {}, 'Esc'));
+    else if (ed.editing) this.banner.append(h('span', {}, 'Editing the parts of a group. Move, resize, add or delete parts, then finish.'), button({ label: 'Done', cls: 'btn-primary', onClick: () => ed.exitGroup() }));
     else if (ed.hasFrame) this.banner.append(h('span', {}, 'Temporary workplane active.'), button({ label: 'Reset workplane', cls: 'btn-outline', onClick: () => { ed.setFrame(null); this._updateBanner(); } }));
   }
 
@@ -706,7 +709,8 @@ export class App {
       done();
       if (ed.placing) ed.cancelPlace();
       else if (ed.tool !== 'select') ed.setTool('select');
-      else ed.clearSelection();
+      else if (ed.selection.size) ed.clearSelection();
+      else if (ed.editing) ed.exitGroup();
       return;
     }
     if (key === 'Delete' || key === 'Backspace') { done(); ed.deleteSelection(); return; }

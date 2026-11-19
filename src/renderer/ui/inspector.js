@@ -70,7 +70,7 @@ export class Inspector {
         rows.push(h('label', { class: 'check' }, cb, 'Multicolor'));
       }
       rows.push(h('div', { class: 'insp-note' }, `${first.children.length} parts · ${first.mode === 'bundle' ? 'Bundle (parts stay separate)' : first.mode === 'intersect' ? 'Intersection' : 'Union'}`));
-      rows.push(button({ label: 'Ungroup', icon: 'ungroup', cls: 'btn-outline', onClick: () => ed.ungroup() }));
+      rows.push(h('div', { class: 'insp-row-btns' }, button({ label: 'Edit parts', icon: 'pencil', cls: 'btn-outline', title: 'Change the parts inside this group without ungrouping (or double-click the group)', onClick: () => ed.enterGroup(first) }), button({ label: 'Ungroup', icon: 'ungroup', cls: 'btn-outline', onClick: () => ed.ungroup() })));
       this.host.append(this._section('params', 'Group', rows));
     }
     this.host.append(this._transformSection());
