@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { textShapes } from './fonts.js';
 import { bevelExtrude } from './solid.js';
+import { GENERATOR_KINDS, GENERATOR_CATALOG } from './generators.js';
 import { makeShape, makeGroup, uid, cloneNode } from './doc.js';
 
 const TAU = Math.PI * 2;
@@ -485,6 +486,8 @@ export const KINDS = {
   },
 };
 
+Object.assign(KINDS, GENERATOR_KINDS);
+
 export function defaultParams(kind) {
   const out = {};
   for (const p of KINDS[kind].params) out[p.key] = p.def;
@@ -588,6 +591,7 @@ export const CATEGORIES = [
   { id: 'more', name: 'More Shapes' },
   { id: 'flat', name: 'Symbols & Flat Shapes' },
   { id: 'structural', name: 'Structural & Hardware' },
+  { id: 'generators', name: 'Generators (real sizes)' },
   { id: 'text', name: 'Text & Numbers' },
   { id: 'starters', name: 'Design Starters' },
   { id: 'mine', name: 'Your Creations' },
@@ -658,6 +662,8 @@ export const CATALOG = [
   C('tbeam', 'profile', 'T Beam', 'structural', '#546e7a', { shape: 'T' }),
   C('ibeam', 'profile', 'I Beam', 'structural', '#546e7a', { shape: 'I' }),
   C('zbeam', 'profile', 'Z Profile', 'structural', '#546e7a', { shape: 'Z' }),
+
+  ...GENERATOR_CATALOG.map(([kind, name, color]) => C('gen-' + kind, kind, name, 'generators', color)),
 
   ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('').map((ch) =>
     C('char-' + ch, 'text', ch, 'text', /\d/.test(ch) ? '#1e88e5' : '#e53935', { text: ch })),
