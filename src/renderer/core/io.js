@@ -1,5 +1,6 @@
 // Import (STL / OBJ / GLB / 3MF / PLY / SVG / images / .dabble) and export (STL / OBJ / GLB / 3MF / SVG).
 import * as THREE from 'three';
+import { fusedExportGeometry } from './printcheck.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -347,12 +348,16 @@ function writeSVG(geos, height = 0.01) {
 }
 
 /** Build export data. Returns { data, extension, filterName } or throws. */
-export async function exportModel(editor, format, { selectedOnly = false } = {}) {
+export async function exportModel(editor, format, { selectedOnly = false, fuse = true } = {}) {
   const nodes = exportNodes(editor, selectedOnly);
   if (!nodes.length) throw new Error(selectedOnly ? 'Select at least one solid shape to export' : 'There is nothing to export yet');
   const geos = nodes.map((n) => bakedWorldGeometry(n, true));
   switch (format) {
-    case 'stl': return { data: writeSTL(geos), extension: 'stl', filterName: 'STL mesh' };
+    case 'stl': {
+      // one watertight shell prints more reliably than overlapping ones; fall back when a part is not a closed solid
+      const fused = fuse && nodes.length > 1 ? fusedExportGeometry(nodes) : null;
+      return { data: writeSTL(fused ? [fused] : geos), extension: 'stl', filterName: 'STL mesh', fused: !!fused };
+    }
     case 'obj': return { data: writeOBJ(nodes, geos), extension: 'obj', filterName: 'Wavefront OBJ' };
     case '3mf': return { data: write3MF(nodes, geos), extension: '3mf', filterName: '3MF model' };
     case 'glb': return { data: await writeGLB(nodes, geos), extension: 'glb', filterName: 'glTF binary' };

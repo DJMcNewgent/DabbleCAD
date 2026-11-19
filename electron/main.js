@@ -1,5 +1,6 @@
 // DabbleCAD - Electron main process
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, net } = require('electron');
+const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -302,6 +303,57 @@ ipcMain.handle('dialog:save', async (_e, opts = {}) => {
   const data = typeof opts.data === 'string' ? opts.data : Buffer.from(opts.data);
   fs.writeFileSync(res.filePath, data);
   return res.filePath;
+});
+// Hand an exported model to a slicer: the chosen app, or whatever opens that file type.
+ipcMain.handle('slicer:open', async (_e, opts = {}) => {
+  try {
+    const dir = path.join(app.getPath('temp'), 'DabbleCAD');
+    fs.mkdirSync(dir, { recursive: true });
+    const name = String(opts.name || 'design.stl').replace(/[^\w .-]/g, '_');
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, typeof opts.data === 'string' ? opts.data : Buffer.from(opts.data));
+    const slicer = typeof settings.slicerPath === 'string' ? settings.slicerPath : '';
+    if (slicer && fs.existsSync(slicer)) {
+      const isMacApp = process.platform === 'darwin' && slicer.endsWith('.app');
+      const child = isMacApp ? spawn('open', ['-a', slicer, file], { detached: true, stdio: 'ignore' }) : spawn(slicer, [file], { detached: true, stdio: 'ignore' });
+      child.on('error', () => {});
+      child.unref();
+      return { ok: true, path: file, app: path.basename(slicer) };
+    }
+    const err = await shell.openPath(file);
+    return err ? { ok: false, path: file, error: err } : { ok: true, path: file, app: null };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message ? err.message : err) };
+  }
+});
+ipcMain.handle('dialog:pick-app', async () => {
+  const res = await dialog.showOpenDialog(win, {
+    title: 'Choose your slicer',
+    filters: process.platform === 'win32' ? [{ name: 'Programs', extensions: ['exe'] }] : [],
+    properties: process.platform === 'darwin' ? ['openFile', 'openDirectory', 'treatPackageAsDirectory'] : ['openFile'],
+  });
+  return res.canceled || !res.filePaths.length ? null : res.filePaths[0];
+});
+
+// Optional update notice: one anonymous request to GitHub's public release list.
+ipcMain.handle('update:check', async () => {
+  if (SMOKE || settings.checkUpdates === false) return null;
+  try {
+    const res = await net.fetch('https://api.github.com/repos/DJMcNewgent/DabbleCAD/releases/latest', { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'DabbleCAD' } });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const latest = String(body.tag_name || '').replace(/^v/, '');
+    const num = (v) => v.split('.').map((n) => parseInt(n, 10) || 0);
+    const a = num(latest), b = num(app.getVersion());
+    let newer = false;
+    for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== (b[i] || 0)) { newer = (a[i] || 0) > (b[i] || 0); break; } }
+    return newer ? { latest, current: app.getVersion(), url: 'https://github.com/DJMcNewgent/DabbleCAD/releases/latest' } : null;
+  } catch {
+    return null; // offline, blocked or rate limited: stay quiet
+  }
+});
+ipcMain.handle('shell:open-external', (_e, url) => {
+  if (typeof url === 'string' && /^https:\/\/github\.com\/DJMcNewgent\//.test(url)) shell.openExternal(url);
 });
 ipcMain.handle('shell:reveal', (_e, p) => { if (typeof p === 'string' && fs.existsSync(p)) shell.showItemInFolder(p); });
 

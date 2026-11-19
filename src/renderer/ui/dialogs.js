@@ -4,6 +4,7 @@ import { platform, isDesktop } from '../platform.js';
 import { EXPORT_FORMATS } from '../core/io.js';
 import { formatLength } from '../view/gizmo.js';
 import { countShapes } from '../core/doc.js';
+import { printCheckDialog } from './printdialog.js';
 
 const toggle = (checked, onChange) => {
   const input = h('input', { type: 'checkbox', checked });
@@ -67,6 +68,13 @@ export async function settingsDialog(app) {
     h('div', { class: 'set-group' }, h('h4', {}, 'Files'),
       row('Auto-save', 'Designs are saved to your library as you work.', toggle(s.autosave !== false, (v) => app.patchSettings({ autosave: v }))),
       isDesktop ? row('Design library', 'Where DabbleCAD keeps your designs.', button({ label: 'Open folder', icon: 'folder', cls: 'btn-outline', onClick: () => platform.openDesignsFolder() })) : null),
+    isDesktop ? h('div', { class: 'set-group' }, h('h4', {}, '3D printing'),
+      row('Slicer', s.slicerPath ? s.slicerPath : 'Not set: "Open in slicer" uses whatever app opens 3MF files on this computer.', h('div', { class: 'set-btns' },
+        button({ label: 'Choose…', cls: 'btn-outline', onClick: async () => { const p = await platform.pickApp(); if (p) { app.patchSettings({ slicerPath: p }); toast('Slicer set'); m.close(); settingsDialog(app); } } }),
+        s.slicerPath ? button({ label: 'Clear', cls: 'btn-ghost', onClick: () => { app.patchSettings({ slicerPath: '' }); m.close(); settingsDialog(app); } }) : null)),
+      row('Send to slicer as STL', 'Off sends 3MF, which keeps colours and separate parts.', toggle(s.slicerFormat === 'stl', (v) => app.patchSettings({ slicerFormat: v ? 'stl' : '3mf' })))) : null,
+    isDesktop ? h('div', { class: 'set-group' }, h('h4', {}, 'Updates'),
+      row('Tell me about new versions', 'Asks GitHub for the latest release when the app starts. Nothing about you or your designs is sent. Turn off to stay fully offline.', toggle(s.checkUpdates !== false, (v) => app.patchSettings({ checkUpdates: v })))) : null,
     h('div', { class: 'set-group' }, h('h4', {}, 'About'),
       row(`DabbleCAD ${s.version || ''}`, 'Created by DJMcNewgent · open source under the Apache License 2.0.', button({ label: 'About', icon: 'info', cls: 'btn-outline', onClick: () => aboutDialog(app) }))));
   void pendingRestart;
@@ -111,6 +119,7 @@ export function exportDialog(app) {
   const ed = app.editor;
   const m = modal({ title: 'Download', width: 520 });
   let selectedOnly = false;
+  let fuse = true;
   const seg = h('div', { class: 'segmented' });
   const all = button({ label: 'Everything in the design', cls: 'active', onClick: () => set(false) });
   const sel = button({ label: 'The selected shapes', cls: ed.selection.size ? '' : 'disabled', onClick: () => set(true) });
@@ -119,7 +128,7 @@ export function exportDialog(app) {
   const grid = h('div', { class: 'format-grid' });
   for (const f of EXPORT_FORMATS) {
     const b = h('button', { class: 'format-btn', type: 'button' }, h('b', {}, '.' + f.id.toUpperCase()), h('small', {}, f.hint));
-    b.addEventListener('click', async () => { m.close(); await app.exportAs(f.id, selectedOnly); });
+    b.addEventListener('click', async () => { m.close(); await app.exportAs(f.id, selectedOnly, { fuse }); });
     grid.append(b);
   }
   const shot = h('button', { class: 'format-btn', type: 'button' }, h('b', {}, '.PNG'), h('small', {}, 'Picture of the current view'));
@@ -128,7 +137,11 @@ export function exportDialog(app) {
   file.addEventListener('click', async () => { m.close(); await app.saveCopy(); });
   grid.append(shot, file);
   m.body.append(h('div', { class: 'field' }, h('span', {}, 'Include'), seg), h('div', { class: 'field' }, h('span', {}, 'Format'), grid),
-    h('div', { class: 'insp-note' }, 'Holes are never exported on their own. Hidden shapes are skipped. Sizes are in millimetres.'));
+    h('label', { class: 'check' }, (() => { const cb = h('input', { type: 'checkbox', checked: true }); cb.addEventListener('change', () => { fuse = cb.checked; }); return cb; })(), 'Fuse overlapping shapes into one solid (STL)'),
+    h('div', { class: 'insp-note' }, 'Holes are never exported on their own. Hidden shapes are skipped. Sizes are in millimetres.'),
+    h('div', { class: 'modal-actions' },
+      button({ label: 'Print check', icon: 'stats', cls: 'btn-outline', title: 'Look for problems before you print', onClick: () => { m.close(); printCheckDialog(app, { selectedOnly }); } }),
+      isDesktop ? button({ label: 'Open in slicer', icon: 'export', cls: 'btn-outline', title: 'Send the design straight to your slicer', onClick: () => { m.close(); app.openInSlicer(selectedOnly); } }) : null));
 }
 
 const SHORTCUTS = [
