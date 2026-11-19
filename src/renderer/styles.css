@@ -413,3 +413,16 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .dm-advice .btn { margin-top: 6px; height: 28px; }
 
 .insp-row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* print check */
+.pc-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.pc-item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.pc-mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: #fff; }
+.pc-ok .pc-mark { background: #2e9e6b; } .pc-warn .pc-mark { background: #d98a1f; } .pc-error .pc-mark { background: #d64545; }
+.pc-text { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.pc-text small { opacity: 0.72; line-height: 1.4; }
+.pc-verdict { font-size: 16px; font-weight: 600; }
+.pc-verdict.pc-ok { color: #2e9e6b; } .pc-verdict.pc-warn { color: #d98a1f; } .pc-verdict.pc-error { color: #d64545; }
+.pc-bed-inputs { display: flex; gap: 8px; align-items: center; } .pc-bed-inputs .input { width: 84px; }
+.set-btns { display: flex; gap: 6px; }
+.toast a { color: inherit; text-decoration: underline; }

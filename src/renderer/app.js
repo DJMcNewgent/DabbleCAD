@@ -38,6 +38,7 @@ export class App {
     await this._openInitial();
     const boot = document.getElementById('boot');
     if (boot) boot.remove();
+    setTimeout(() => this._checkForUpdate(), 4000);
     if (this.settings.gpuAutoDisabled) toast('GPU acceleration was turned off after a graphics crash. You can re-enable it in Settings.', 'warn', 7000);
   }
 
@@ -404,9 +405,9 @@ export class App {
     for (const msg of res.messages) toast(msg, 'warn', 6000);
   }
 
-  async exportAs(format, selectedOnly) {
+  async exportAs(format, selectedOnly, { fuse = true } = {}) {
     try {
-      const out = await this.editor._busy(() => exportModel(this.editor, format, { selectedOnly }));
+      const out = await this.editor._busy(() => exportModel(this.editor, format, { selectedOnly, fuse }));
       const path = await platform.saveDialog({
         title: 'Export ' + out.extension.toUpperCase(), defaultName: `${this._fileBase()}.${out.extension}`,
         filters: [{ name: out.filterName, extensions: [out.extension] }], data: out.data,
@@ -415,6 +416,27 @@ export class App {
     } catch (err) {
       toast(err.message || String(err), 'warn', 5000);
     }
+  }
+
+  /** Export to a temporary file and hand it to the user's slicer (or the default app for the file type). */
+  async openInSlicer(selectedOnly = false) {
+    try {
+      const format = this.settings.slicerFormat === 'stl' ? 'stl' : '3mf';
+      const out = await this.editor._busy(() => exportModel(this.editor, format, { selectedOnly }));
+      const res = await platform.openInSlicer({ name: `${this._fileBase()}.${out.extension}`, data: out.data });
+      if (res && res.ok) toast(res.app ? `Opened in ${res.app}` : `Opened ${out.extension.toUpperCase()} with your default app`);
+      else toast('Could not open a slicer' + (res && res.error ? ': ' + res.error : '') + '. Choose your slicer in Settings.', 'warn', 6000);
+    } catch (err) {
+      toast(err.message || String(err), 'warn', 5000);
+    }
+  }
+
+  async _checkForUpdate() {
+    if (this.settings.checkUpdates === false) return;
+    const u = await platform.checkUpdate().catch(() => null);
+    if (!u) return;
+    const link = h('a', { href: '#', onClick: (e) => { e.preventDefault(); platform.openExternal(u.url); } }, 'See what is new');
+    toast(h('span', {}, `DabbleCAD ${u.latest} is available (you have ${u.current}). `, link), 'info', 15000);
   }
 
   async exportScreenshot() {
