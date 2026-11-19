@@ -19,6 +19,7 @@ export const stats = { csgRuns: 0, csgFailures: 0, lastCsgMs: 0 };
 const evaluator = new Evaluator();
 evaluator.attributes = ['position', 'normal', 'color'];
 evaluator.useGroups = false;
+evaluator.useCDTClipping = true;
 
 const triCount = (g) => (g.index ? g.index.count : g.attributes.position.count) / 3;
 

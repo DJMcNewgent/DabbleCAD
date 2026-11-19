@@ -1,17 +1,24 @@
-# DabbleCAD 1.0.0
+# DabbleCAD 1.0.1
 
-The first release of DabbleCAD: an offline, open-source alternative to Tinkercad for
-3D design and 3D printing, with a laser workspace and depth-map tools alongside. It
-runs locally, and no account or internet connection is needed to use it.
+A bug-fix release.
 
-DabbleCAD is an independent project, not affiliated with or endorsed by Autodesk.
-Tinkercad is a trademark of Autodesk, Inc.
+## Fixed
 
-> I'm a tinkerer. I kept jumping between different apps for the things I like to
-> do, and I wanted those tools together in one place. This is just the start.
-> More to come.
->
-> — DJMcNewgent
+- **Grouping could freeze and crash the app.** Combining a shape with two or more
+  overlapping holes of the same height (for example, two default cylinder holes on a
+  stretched box) never finished and closed the window. Grouping now completes in a
+  fraction of a second and produces a much lighter mesh.
+
+## Changed
+
+- DabbleCAD is now licensed under the Apache License 2.0. Version 1.0.0 remains
+  available under the MIT License.
+- A Linux x64 AppImage is now built alongside the Windows and Mac downloads.
+
+DabbleCAD is an offline, open-source alternative to Tinkercad for 3D design and 3D
+printing, with a laser workspace and depth-map tools alongside. It is an independent
+project, not affiliated with or endorsed by Autodesk. Tinkercad is a trademark of
+Autodesk, Inc.
 
 ## What's included
 
@@ -25,11 +32,12 @@ Tinkercad is a trademark of Autodesk, Inc.
 
 ## Downloads
 
-- `DabbleCAD-1.0.0-win-x64-setup.exe`: Windows installer.
-- `DabbleCAD-1.0.0-win-x64.zip`: portable/no-install Windows app; extract everything.
-- `DabbleCAD-1.0.0-mac-arm64.dmg` / `.zip`: Apple Silicon Mac.
-- `DabbleCAD-1.0.0-mac-x64.dmg` / `.zip`: Intel Mac.
-- `SHA256SUMS.txt`: checksums for these six files.
+- `DabbleCAD-1.0.1-win-x64-setup.exe`: Windows installer.
+- `DabbleCAD-1.0.1-win-x64.zip`: portable/no-install Windows app; extract everything.
+- `DabbleCAD-1.0.1-mac-arm64.dmg` / `.zip`: Apple Silicon Mac.
+- `DabbleCAD-1.0.1-mac-x64.dmg` / `.zip`: Intel Mac.
+- `DabbleCAD-1.0.1-linux-x64.AppImage`: Linux x64.
+- `SHA256SUMS.txt`: checksums for these seven files.
 
 **All desktop variants work offline once downloaded.** Normal editing, local
 saving, import/export, depth maps, and local USB serial use need no account or
