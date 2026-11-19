@@ -21,12 +21,15 @@ released after it. If you are on 1.1.0 or older, download this release by hand o
 - Bevelled text that would leave invalid mesh edges is reduced automatically, and
   collapsed facets are left out of STL files (thanks to @swpswpswp).
 
-## Not verified
+## How this was tested
 
-Checking, downloading and checksum verification were tested against a real release.
-The final step, running the installer and restarting, has not been exercised
-end to end on any platform. If an update does not complete, download the new version
-from the release page; your designs and settings are unaffected.
+On Windows, the full path was run for real against a published release: an installed
+copy found the newer version, downloaded it, verified its checksum, installed it
+silently, and restarted on the new version with settings and designs untouched.
+
+The Mac, Linux, and portable-ZIP paths share the same check, download, and verify
+steps, but their final step has not been exercised. If an update does not complete,
+download the new version from the release page; your designs and settings are unaffected.
 
 DabbleCAD is an offline, open-source alternative to Tinkercad for 3D design and 3D
 printing, with a laser workspace and depth-map tools alongside. It is an independent
