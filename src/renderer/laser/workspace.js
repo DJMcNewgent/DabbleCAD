@@ -124,7 +124,7 @@ export class LaserWorkspace {
   _build() {
     const tb = (ic, title, onClick, label) => button({ icon: ic, title, onClick, label });
     const menuBtn = (label, ic, items) => { const b = button({ icon: ic, label, title: label, onClick: () => popupMenu(items(), b) }); return b; };
-    this.toolbar = h('div', { class: 'toolbar laser-toolbar' },
+    this.toolbar = h('div', { class: 'toolbar laser-toolbar', role: 'toolbar', 'aria-label': 'Laser tools' },
       tb('import', 'Import SVG, DXF or images (Ctrl+I)', () => this.importDialog(), 'Import'),
       menuBtn('Export', 'export', () => [
         { label: 'Save G-code…', icon: 'export', onClick: () => this.saveGcode() },
@@ -193,7 +193,7 @@ export class LaserWorkspace {
       toolBtn('polygon', 'lpolygon', 'Polygon'), toolBtn('text', 'ltext', 'Text (Ctrl+T)'),
       toolBtn('measure', 'ruler', 'Measure (Alt+M)'), toolBtn('position', 'target', 'Click to move the laser head to a spot'));
 
-    this.canvas = h('canvas', { class: 'laser-canvas' });
+    this.canvas = h('canvas', { class: 'laser-canvas', 'aria-label': 'Laser bed drawing area' });
     this.ctx = this.canvas.getContext('2d');
     this.coords = h('div', { class: 'laser-coords' });
     this.wrap = h('div', { class: 'laser-canvas-wrap' }, this.canvas, this.coords);

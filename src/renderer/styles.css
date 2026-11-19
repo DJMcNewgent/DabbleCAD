@@ -439,3 +439,19 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .sketch-point .sketch-field .input { width: 70px; } .sketch-points { display: flex; flex-direction: column; gap: 4px; }
 
 .le-material { display: flex; gap: 6px; align-items: center; } .le-material .select { flex: 1; min-width: 0; }
+
+/* keyboard focus */
+.btn:focus-visible, .menu-item:focus-visible, .shape-tile:focus-visible, .ws-tab:focus-visible, .kind-btn:focus-visible, .format-btn:focus-visible,
+.input:focus-visible, .select:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible, .dash-card:focus-visible {
+  outline: 2px solid var(--accent, #4c8dff); outline-offset: 2px;
+}
+.modal:focus { outline: none; }
+.menu-item:focus-visible { outline-offset: -2px; }
+/* welcome guide */
+.welcome-step { min-height: 190px; display: flex; flex-direction: column; gap: 10px; }
+.welcome-step h3 { margin: 0; font-size: 19px; }
+.welcome-step p, .welcome-step li { line-height: 1.55; margin: 0; }
+.welcome-step ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.welcome-dots { display: flex; gap: 6px; align-items: center; flex: 1; }
+.welcome-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+.welcome-dots i.on { background: var(--accent, #4c8dff); }

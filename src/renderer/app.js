@@ -13,7 +13,7 @@ import { ShapesPanel } from './ui/shapespanel.js';
 import { Dashboard } from './ui/dashboard.js';
 import { scribbleDialog } from './ui/scribble.js';
 import { sketchDialog } from './ui/sketch.js';
-import { settingsDialog, gridDialog, exportDialog, shortcutsDialog, statsDialog, patternDialog, noteDialog, aboutDialog, saveChangesDialog } from './ui/dialogs.js';
+import { settingsDialog, gridDialog, exportDialog, shortcutsDialog, welcomeDialog, statsDialog, patternDialog, noteDialog, aboutDialog, saveChangesDialog } from './ui/dialogs.js';
 import { newDoc, serializeDoc, deserializeDoc, uid, walk, countShapes } from './core/doc.js';
 import { initFonts, ensureFont } from './core/fonts.js';
 import { kindName } from './core/shapes.js';
@@ -40,6 +40,7 @@ export class App {
     const boot = document.getElementById('boot');
     if (boot) boot.remove();
     setTimeout(() => this._checkForUpdate(), 4000);
+    if (this.settings.welcomeSeen !== true && !this.settings.smoke) welcomeDialog(this);
     if (this.settings.gpuAutoDisabled) toast('GPU acceleration was turned off after a graphics crash. You can re-enable it in Settings.', 'warn', 7000);
   }
 
@@ -76,21 +77,21 @@ export class App {
     this.themeBtn = button({ icon: 'sun', title: 'Switch between dark and light mode', onClick: () => this.setTheme(this.settings.theme === 'light' ? 'dark' : 'light') });
     const logo = h('button', { class: 'logo', type: 'button', title: 'Your designs' }, this.logoMark(), h('span', { class: 'logo-name' }, 'DabbleCAD'));
     logo.addEventListener('click', () => this.dashboard.show());
-    const topbar = h('div', { class: 'topbar' }, logo, h('span', { class: 'sep' }), this.nameInput, this.saveState, h('span', { class: 'spacer' }),
+    const topbar = h('div', { class: 'topbar', role: 'toolbar', 'aria-label': 'Design and file tools' }, logo, h('span', { class: 'sep' }), this.nameInput, this.saveState, h('span', { class: 'spacer' }),
       this.modeSeg, h('span', { class: 'sep' }),
       button({ label: 'Import', icon: 'import', title: 'Import STL, OBJ, GLB, 3MF, SVG, images (Ctrl+O opens a design file)', onClick: () => this.importDialog() }),
       button({ label: 'Export', icon: 'export', title: 'Download for 3D printing or sharing (Ctrl+E)', onClick: () => exportDialog(this) }),
       h('span', { class: 'sep' }), this.themeBtn,
-      button({ icon: 'help', title: 'Keyboard shortcuts (?)', onClick: () => shortcutsDialog() }),
+      button({ icon: 'help', title: 'Help: shortcuts and getting started (?)', onClick: () => shortcutsDialog(this) }),
       button({ icon: 'info', title: 'About DabbleCAD', onClick: () => aboutDialog(this) }),
       button({ icon: 'settings', title: 'Settings', onClick: () => settingsDialog(this) }));
 
     // top-level workspaces sit directly beneath the DabbleCAD brand
     this.wsTabs = {};
     const wsTab = (id, label, ic, tip) => { const b = button({ label, icon: ic, title: tip, size: 17, cls: 'ws-tab', onClick: () => this.setViewMode(id === 'laser' ? 'laser' : this.last3d || 'design') }); b.dataset.mode = id === 'laser' ? 'laser' : 'workspace-3d'; this.wsTabs[id] = b; return b; };
-    const workspaceBar = h('div', { class: 'workspace-bar' }, wsTab('3d', '3D Design', 'cube', '3D design workspace'), wsTab('laser', 'Laser', 'laser', 'Laser workspace: draw, set up cuts and engraves, and run your laser'));
+    const workspaceBar = h('div', { class: 'workspace-bar', role: 'tablist', 'aria-label': 'Workspace' }, wsTab('3d', '3D Design', 'cube', '3D design workspace'), wsTab('laser', 'Laser', 'laser', 'Laser workspace: draw, set up cuts and engraves, and run your laser'));
     this.wsTabs['3d'].classList.add('active');
-    const toolbar = h('div', { class: 'toolbar' },
+    const toolbar = h('div', { class: 'toolbar', role: 'toolbar', 'aria-label': 'Editing tools' },
       tb('outliner', 'list', 'Objects list', () => this.toggleOutliner()), h('span', { class: 'sep' }),
       tb('copy', 'copy', 'Copy (Ctrl+C)', () => this.editor.copy()),
       tb('paste', 'paste', 'Paste (Ctrl+V)', () => this.editor.paste()),
@@ -742,7 +743,7 @@ export class App {
     if (key === 'Home') { done(); this.viewport.home(); return; }
     if (!ctrl && (key === '+' || key === '=')) { done(); this.viewport.zoomBy(0.8); return; }
     if (!ctrl && (key === '-' || key === '_')) { done(); this.viewport.zoomBy(1.25); return; }
-    if (key === '?' || key === 'F1') { done(); shortcutsDialog(); return; }
+    if (key === '?' || key === 'F1') { done(); shortcutsDialog(this); return; }
     if (voxel) { if (key === 'Escape') this.setViewMode('design'); return; }
 
     if (key === 'Escape') {

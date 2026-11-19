@@ -80,7 +80,7 @@ export class ShapesPanel {
       const n = nodeFromCatalog(entry);
       return n;
     }).then((url) => { if (url) { img.src = url; img.style.visibility = ''; } });
-    const tile = h('div', { class: 'shape-tile', title: entry.special === 'scribble' ? 'Scribble: draw your own shape' : entry.special === 'sketch' ? 'Sketch: draw an exact outline with typed sizes, then pull it into 3D' : `${entry.name}: drag onto the workplane, or click then click to place` }, img, h('span', {}, entry.name));
+    const tile = h('div', { class: 'shape-tile', role: 'button', tabindex: '0', 'aria-label': entry.name, title: entry.special === 'scribble' ? 'Scribble: draw your own shape' : entry.special === 'sketch' ? 'Sketch: draw an exact outline with typed sizes, then pull it into 3D' : `${entry.name}: drag onto the workplane, or click then click to place` }, img, h('span', {}, entry.name));
     if (entry.cat === 'mine') {
       const del = h('button', { class: 'shape-del', type: 'button', title: 'Remove from Your Creations' }, '×');
       del.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -93,6 +93,14 @@ export class ShapesPanel {
       });
       tile.append(del);
     }
+    // keyboard: Enter or Space drops the shape in the middle of the view
+    tile.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault(); e.stopPropagation();
+      if (entry.special === 'sketch') this.app.openSketch(null);
+      else if (entry.special === 'scribble') this.app.openScribble(null);
+      else this.editor.addAtViewCenter(nodeFromCatalog(entry));
+    });
     tile.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
