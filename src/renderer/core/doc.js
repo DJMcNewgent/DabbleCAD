@@ -54,7 +54,10 @@ function paramKey(params) {
 }
 
 // A string that fully determines the geometry of a node (not its own transform / colour).
+const roundKey = (node) => (node.round > 0 ? '~' + (node.roundStyle === 'bevel' ? 'b' : 'r') + round5(node.round) : '');
+
 export function geomKey(node) {
+  if (node.round > 0) return geomKey({ ...node, round: 0 }) + roundKey(node);
   if (node.type === 'shape') return node.kind + paramKey(node.params);
   const parts = node.children.map((c) =>
     geomKey(c) + '@' + c.matrix.map(round5).join(',') + (c.hole ? 'h' : 's') +

@@ -30,9 +30,10 @@ export const solidReady = () => !!api;
  */
 export function toSolid(geo) {
   if (!api) return null;
+  if (geo.index) geo = geo.toNonIndexed();
   const pos = geo.attributes.position, col = geo.attributes.color;
   const n = pos.count;
-  if (n < 12 || geo.index) return null;
+  if (n < 12) return null;
   const props = new Float32Array(n * 6);
   for (let i = 0; i < n; i++) {
     props[i * 6] = pos.getX(i); props[i * 6 + 1] = pos.getY(i); props[i * 6 + 2] = pos.getZ(i);

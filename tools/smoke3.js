@@ -135,6 +135,20 @@ vp.canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId
 check('context-menu', !!document.querySelector('.menu') && document.querySelectorAll('.menu-item').length > 10);
 document.querySelectorAll('.menu').forEach((m) => m.remove());
 ed.select([d1.id]);
+// round / bevel edges keep the size and stay closed; generators are closed solids
+{
+  const rb = add('star', 260, -200); const size0 = ed.bounds([rb]);
+  ed.select([rb.id]); ed.patchSelection({ round: 1 });
+  const rg = lib.geometry.getGeometry(ed.node(rb.id)); const ri = lib.solid.inspectSolid(rg); const size1 = ed.bounds([ed.node(rb.id)]);
+  check('round-edges', ri.closed && Math.abs((size1.max.x - size1.min.x) - (size0.max.x - size0.min.x)) < 0.05 && rg.attributes.position.count > 200, [ri, rg.attributes.position.count]);
+  ed.patchSelection({ round: 1, roundStyle: 'bevel' });
+  check('bevel-edges', lib.solid.inspectSolid(lib.geometry.getGeometry(ed.node(rb.id))).closed);
+  ed.deleteSelection();
+  for (const c of CATALOG.filter((c) => c.cat === 'generators')) {
+    const gi = lib.solid.inspectSolid(lib.geometry.getGeometry(nodeFromCatalog(c)));
+    check('generator-' + c.id, gi.closed && gi.volume > 50, gi);
+  }
+}
 // bevelled text must stay a closed, printable solid
 {
   const tn = nodeFromCatalog(CATALOG.find((c) => c.id === 'text')); tn.params = { ...tn.params, text: 'Wiggly & 8', bevel: 0.8, segments: 3 };
