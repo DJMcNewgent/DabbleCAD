@@ -437,3 +437,5 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .sketch-field .input { width: 96px; }
 .sketch-point { display: flex; gap: 6px; align-items: center; } .sketch-point > span { width: 16px; opacity: .6; font-size: 12px; }
 .sketch-point .sketch-field .input { width: 70px; } .sketch-points { display: flex; flex-direction: column; gap: 4px; }
+
+.le-material { display: flex; gap: 6px; align-items: center; } .le-material .select { flex: 1; min-width: 0; }
