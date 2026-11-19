@@ -6,7 +6,7 @@ import { zipSync, zlibSync } from 'three/examples/jsm/libs/fflate.module.js';
 import { h, modal, button, toast, clear } from '../ui/dom.js';
 import { platform } from '../platform.js';
 import { bakedWorldGeometry, getGeometry } from '../core/geometry.js';
-import { makeImage, layerOf } from './model.js';
+import { makeImage, makeGroup, layerOf } from './model.js';
 
 const VIEWS = {
   top: { u: [1, 0, 0], v: [0, 1, 0], d: [0, 0, 1], label: 'Top' },
@@ -226,6 +226,7 @@ export function depthMapStudio(ws) {
     button({ label: 'Export slice masks (.zip)', cls: 'btn-outline', onClick: () => exportSlices() }),
     h('span', { style: { flex: 1 } }),
     button({ label: 'Close', cls: 'btn-outline', onClick: () => m.close() }),
+    button({ label: 'Add as slice passes', cls: 'btn-outline', title: 'Place one mask per slice on its own layer, so the laser cuts the relief pass by pass', onClick: () => addSlicesToLaser() }),
     button({ label: 'Add to laser workspace', cls: 'btn-primary', title: 'Place the depth map on the bed as a grayscale engraving', onClick: () => addToLaser() })));
 
   let timer = null;
@@ -423,9 +424,48 @@ export function depthMapStudio(ws) {
     toast(`Added as a grayscale engraving on layer ${String(L + 1).padStart(2, '0')}. Darker areas engrave deeper; set passes and power on that layer.`, 'info', 7000);
   }
 
+  // One black-and-white mask per slice, each on its own layer, engraved in order: every
+  // pass removes one step of depth wherever the relief has to end up deeper than that step.
+  async function addSlicesToLaser() {
+    if (!need()) return;
+    const N = Math.max(2, Math.round(o.slices)), passes = N - 1, { w, h: hgt } = source;
+    const used = new Set();
+    const visit = (list) => { for (const s of list) { if (s.children) visit(s.children); else used.add(s.layer); } };
+    visit(ws.doc.shapes);
+    const free = [];
+    for (let i = 0; i < 30 && free.length < passes; i++) if (!used.has(i)) free.push(i);
+    if (free.length < passes) { toast(`${passes} passes need ${passes} unused layers, but only ${free.length} are free. Lower the slice count to ${free.length + 1} or fewer.`, 'warn', 7000); return; }
+    const plain = processHeight(source, { ...o, posterize: false });
+    const widthMM = Math.max(1, o.widthMM), heightMM = (widthMM * hgt) / w;
+    const x = ws.machine.bedW / 2 - widthMM / 2, y = ws.machine.bedH / 2 - heightMM / 2;
+    const template = { ...layerOf(ws.doc, ws.doc.currentLayer) };
+    const shapes = [];
+    for (let s = 1; s <= passes; s++) {
+      const cut = new Float32Array(w * hgt), level = 1 - s / N;
+      for (let i = 0; i < cut.length; i++) cut[i] = plain[i] < level ? 0 : 1;
+      const src = bytesToDataUrl(encodeGrayPNG(cut, w, hgt, 8, false), 'image/png');
+      const img = new Image();
+      await new Promise((res) => { img.onload = res; img.src = src; });
+      const li = free[s - 1], layer = layerOf(ws.doc, li);
+      Object.assign(layer, { mode: 'fill', speed: template.speed, powerMax: template.powerMax, powerMin: template.powerMin, passes: 1, bidirectional: true, overscan: template.overscan, air: template.air, output: true, show: true,
+        interval: Math.max(0.02, +Math.max(o.spot, widthMM / w).toFixed(3)) });
+      layer.image = { ...layer.image, mode: 'threshold', negative: false, brightness: 0, contrast: 0, gamma: 1 };
+      const shape = makeImage(li, x, y, widthMM, heightMM, src, w, hgt);
+      shape.name = `Slice ${s} of ${passes}`;
+      ws.images.set(shape.id, img);
+      shapes.push(shape);
+    }
+    const group = makeGroup(shapes);
+    group.name = 'Depth map slices';
+    m.close();
+    ws.add([group]);
+    ws.setTool('select');
+    toast(`Added ${passes} slice passes on layers ${String(free[0] + 1).padStart(2, '0')}–${String(free[passes - 1] + 1).padStart(2, '0')}. They run in layer order; each removes about ${(o.depthMM / passes).toFixed(3)} mm. Set speed and power on those layers from a test piece.`, 'info', 9000);
+  }
+
   // drag and drop a file onto the studio
   m.el.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
   m.el.addEventListener('drop', async (e) => { e.preventDefault(); e.stopPropagation(); const f = e.dataTransfer.files[0]; if (f) loadFile({ name: f.name, data: await f.arrayBuffer() }); });
   update();
-  return { loadFile, useDesign, options: o, getProcessed: () => processed, getSource: () => source, setTab: (t) => { tab = t; o.posterize = t === 'slices'; update(); }, close: () => m.close() };
+  return { loadFile, useDesign, options: o, getProcessed: () => processed, getSource: () => source, addSlices: addSlicesToLaser, setTab: (t) => { tab = t; o.posterize = t === 'slices'; update(); }, close: () => m.close() };
 }
