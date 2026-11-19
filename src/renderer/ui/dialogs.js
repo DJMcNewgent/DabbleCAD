@@ -222,7 +222,7 @@ export function saveChangesDialog(name) {
 }
 
 const THIRD_PARTY = [
-  ['Electron', 'MIT'], ['three.js', 'MIT'], ['three-mesh-bvh', 'MIT'], ['three-bvh-csg', 'MIT'], ['opentype.js', 'MIT'],
+  ['Electron', 'MIT'], ['three.js', 'MIT'], ['three-mesh-bvh', 'MIT'], ['three-bvh-csg', 'MIT'], ['Manifold', 'Apache 2.0'], ['opentype.js', 'MIT'],
   ['qrcode-generator', 'MIT'], ['Clipper (clipper-lib)', 'Boost Software License 1.0'], ['Roboto font (Fontsource)', 'SIL Open Font License 1.1'],
 ];
 

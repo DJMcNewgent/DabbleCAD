@@ -27,6 +27,7 @@
     "clipper-lib": "^6.4.2",
     "electron": "^45.3.2",
     "electron-builder": "26.18.0",
+    "manifold-3d": "^3.5.5",
     "opentype.js": "^2.0.0",
     "qrcode-generator": "^2.0.4",
     "three": "^0.187.0",

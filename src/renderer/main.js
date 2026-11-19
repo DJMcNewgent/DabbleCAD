@@ -3,6 +3,7 @@ import * as shapes from './core/shapes.js';
 import * as doc from './core/doc.js';
 import * as geometry from './core/geometry.js';
 import * as io from './core/io.js';
+import * as solid from './core/solid.js';
 import * as laserModel from './laser/model.js';
 import * as laserGcode from './laser/gcode.js';
 import * as laserOps from './laser/ops.js';
@@ -13,7 +14,7 @@ import * as laserDepth from './laser/depthmap.js';
 const app = new App();
 // Handy for debugging and automated checks from DevTools (F12).
 window.dabble = app;
-window.dabbleLib = { shapes, doc, geometry, io, laser: { model: laserModel, gcode: laserGcode, ops: laserOps, io: laserIo, tools: laserTools, depthmap: laserDepth } };
+window.dabbleLib = { shapes, doc, geometry, io, solid, laser: { model: laserModel, gcode: laserGcode, ops: laserOps, io: laserIo, tools: laserTools, depthmap: laserDepth } };
 app.init().catch((err) => {
   console.error(err);
   const boot = document.getElementById('boot');

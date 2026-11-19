@@ -6,6 +6,7 @@ import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-
 import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
 import { KINDS } from './shapes.js';
 import { geomKey, mat4 } from './doc.js';
+import { solidBoolean } from './solid.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -14,7 +15,7 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 const CREASE = 0.58; // ~33 degrees
 const cache = new Map();
 const CACHE_LIMIT = 500;
-export const stats = { csgRuns: 0, csgFailures: 0, lastCsgMs: 0 };
+export const stats = { csgRuns: 0, csgFailures: 0, lastCsgMs: 0, solidRuns: 0, fallbackRuns: 0 };
 
 const evaluator = new Evaluator();
 evaluator.attributes = ['position', 'normal', 'color'];
@@ -135,6 +136,16 @@ function buildGroup(node) {
   if (!ops.length) return emptyGeometry();
   const t0 = performance.now();
   stats.csgRuns += 1;
+  // Preferred path: the solid kernel, which always returns a closed, printable mesh.
+  const solid = solidBoolean(solids, holes, node.mode);
+  if (solid) {
+    stats.solidRuns += 1;
+    stats.lastCsgMs = performance.now() - t0;
+    if (!solid.attributes.position.count) return emptyGeometry();
+    return toCreasedNormals(solid, CREASE);
+  }
+  // Fallback for operands that are not closed solids (e.g. some imported meshes).
+  stats.fallbackRuns += 1;
   try {
     let result;
     if (!solids.length) {

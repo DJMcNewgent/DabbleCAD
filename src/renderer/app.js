@@ -1,5 +1,6 @@
 // Application shell: layout, toolbars, keyboard shortcuts, auto-save and file handling.
 import * as THREE from 'three';
+import { initSolid } from './core/solid.js';
 import { h, clear, button, icon, toast, popupMenu, promptDialog, confirmDialog } from './ui/dom.js';
 import { platform } from './platform.js';
 import { Viewport, HOME_VIEW } from './view/viewport.js';
@@ -27,6 +28,7 @@ export class App {
     this.settings = await platform.getSettings();
     document.documentElement.dataset.theme = this.settings.theme === 'light' ? 'light' : 'dark';
     await initFonts();
+    await initSolid();
     this.designId = null;
     this.dirty = false;
     this.saveTimer = null;
