@@ -74,6 +74,7 @@ export async function settingsDialog(app) {
         s.slicerPath ? button({ label: 'Clear', cls: 'btn-ghost', onClick: () => { app.patchSettings({ slicerPath: '' }); m.close(); settingsDialog(app); } }) : null)),
       row('Send to slicer as STL', 'Off sends 3MF, which keeps colours and separate parts.', toggle(s.slicerFormat === 'stl', (v) => app.patchSettings({ slicerFormat: v ? 'stl' : '3mf' })))) : null,
     isDesktop ? h('div', { class: 'set-group' }, h('h4', {}, 'Updates'),
+      row(`You have version ${s.version || ''}`, 'Looks on GitHub for a newer release, downloads it and installs it. Your designs and settings are kept.', button({ label: 'Check for updates', cls: 'btn-outline', onClick: () => { m.close(); updateDialog(app); } })),
       row('Tell me about new versions', 'Asks GitHub for the latest release when the app starts. Nothing about you or your designs is sent. Turn off to stay fully offline.', toggle(s.checkUpdates !== false, (v) => app.patchSettings({ checkUpdates: v })))) : null,
     h('div', { class: 'set-group' }, h('h4', {}, 'About'),
       row(`DabbleCAD ${s.version || ''}`, 'Created by DJMcNewgent · open source under the Apache License 2.0.', button({ label: 'About', icon: 'info', cls: 'btn-outline', onClick: () => aboutDialog(app) }))));
@@ -153,6 +154,82 @@ const SHORTCUTS = [
   ['Commands', [['Copy / Cut / Paste', 'Ctrl + C / X / V'], ['Paste in place', 'Ctrl + Shift + V'], ['Duplicate and repeat', 'Ctrl + D'], ['Delete', 'Del'], ['Undo / Redo', 'Ctrl + Z / Ctrl + Y'], ['Select all', 'Ctrl + A'],
     ['Group (union)', 'Ctrl + G'], ['Intersect group', 'Ctrl + I'], ['Bundle', 'Ctrl + B'], ['Ungroup', 'Ctrl + Shift + G'], ['Add to / remove from selection', 'Shift + click'], ['Box select', 'Drag on empty space']]],
 ];
+
+const megabytes = (n) => (n / 1048576).toFixed(n > 10485760 ? 0 : 1) + ' MB';
+let progressHooked = false, onProgress = null;
+
+/** Check for updates: reports the result, then downloads, verifies and installs on request. */
+export function updateDialog(app, known = null) {
+  const m = modal({ title: 'Updates', width: 520, onClose: () => { onProgress = null; } });
+  const status = h('div', { class: 'update-status' });
+  const detail = h('div', { class: 'insp-note' });
+  const bar = h('div', { class: 'update-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', style: { display: 'none' } }, h('i'));
+  const actions = h('div', { class: 'modal-actions' });
+  m.body.append(status, detail, bar, actions);
+  const setActions = (...btns) => { clear(actions); actions.append(...btns.filter(Boolean)); };
+  const closeBtn = (label = 'Close') => button({ label, cls: 'btn-outline', onClick: () => m.close() });
+  if (!progressHooked) { progressHooked = true; platform.onUpdateProgress((p) => { if (onProgress) onProgress(p); }); }
+
+  async function check() {
+    status.textContent = 'Checking GitHub for a newer version…';
+    detail.textContent = ''; setActions(closeBtn('Cancel'));
+    const u = await platform.checkUpdate({ manual: true }).catch((err) => ({ status: 'error', error: String(err) }));
+    show(u);
+  }
+  function show(u) {
+    if (!u || u.status === 'error') {
+      status.textContent = 'Could not check for updates';
+      detail.textContent = (u && u.error ? u.error + '. ' : '') + 'Check your internet connection and try again.';
+      setActions(closeBtn(), button({ label: 'Try again', cls: 'btn-primary', onClick: check }));
+    } else if (u.status === 'current') {
+      status.textContent = `You have the latest version (${u.current}).`;
+      detail.textContent = '';
+      setActions(closeBtn('OK'));
+    } else {
+      status.textContent = `DabbleCAD ${u.latest} is available. You have ${u.current}.`;
+      const what = { install: 'It will be installed over this copy and the app will restart.', appimage: 'It will replace this AppImage and the app will restart.', open: 'The disk image will open so you can drag the new app into Applications.', reveal: 'The download will be shown in its folder so you can replace this copy.' }[u.mode] || '';
+      detail.textContent = u.canInstall ? `${u.size ? megabytes(u.size) + ' download. ' : ''}${what} Your designs and settings stay where they are.` : 'There is no automatic download for this computer. Open the release page to get it.';
+      setActions(closeBtn('Later'),
+        button({ label: 'What is new', cls: 'btn-outline', onClick: () => platform.openExternal(u.url) }),
+        u.canInstall ? button({ label: u.mode === 'install' || u.mode === 'appimage' ? 'Download and install' : 'Download', cls: 'btn-primary', onClick: () => download(u) }) : null);
+    }
+  }
+  async function download(u) {
+    status.textContent = `Downloading DabbleCAD ${u.latest}…`;
+    detail.textContent = 'Starting…'; bar.style.display = ''; bar.firstChild.style.width = '0%';
+    setActions();
+    onProgress = (p) => {
+      const pct = p.total ? Math.min(100, Math.round((p.received / p.total) * 100)) : 0;
+      bar.firstChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', String(pct));
+      detail.textContent = p.total ? `${megabytes(p.received)} of ${megabytes(p.total)}` : megabytes(p.received);
+    };
+    const res = await platform.downloadUpdate();
+    onProgress = null; bar.style.display = 'none';
+    if (!res || !res.ok) {
+      status.textContent = 'The update could not be downloaded';
+      detail.textContent = (res && res.error ? res.error + '. ' : '') + 'Nothing was changed.';
+      setActions(closeBtn(), button({ label: 'Open the release page', cls: 'btn-outline', onClick: () => platform.openExternal(u.url) }), button({ label: 'Try again', cls: 'btn-primary', onClick: () => download(u) }));
+      return;
+    }
+    status.textContent = 'Downloaded and verified. Saving your work…';
+    detail.textContent = '';
+    await app.flushSave();
+    const done = await platform.installUpdate();
+    if (!done || !done.ok) {
+      status.textContent = 'The update could not be started';
+      detail.textContent = (done && done.error ? done.error + '. ' : '') + (done && done.file ? 'The download is at ' + done.file : '');
+      setActions(closeBtn());
+    } else if (done.quitting) {
+      status.textContent = `Installing DabbleCAD ${u.latest}. The app will close and reopen in a moment.`;
+    } else {
+      status.textContent = done.dryRun ? 'Update verified (test run: not installed).' : done.mode === 'open' ? 'The new version is open. Drag it into Applications, then reopen DabbleCAD.' : 'The new version is in your downloads folder for this update.';
+      detail.textContent = done.file || '';
+      setActions(closeBtn('OK'));
+    }
+  }
+  if (known && known.status === 'available') show(known); else check();
+  return m;
+}
 
 const WELCOME = [
   ['Welcome to DabbleCAD', 'Build things for 3D printing by combining simple shapes. This short guide covers the basics; it takes about a minute.', [
@@ -300,7 +377,7 @@ export function aboutDialog(app) {
       'Copyright © 2026 DJMcNewgent. DabbleCAD is free and open-source software released under the Apache License, Version 2.0: you may use, copy, modify and share it, provided the copyright, license and notice files are kept and changes are marked. It comes with no warranty.'),
     h('details', { class: 'about-third' }, h('summary', {}, 'Open-source components'),
       h('div', { class: 'stat-grid' }, THIRD_PARTY.flatMap(([n, l]) => [h('span', {}, n), h('span', {}, l)]))),
-    h('div', { class: 'modal-actions' }, button({ label: 'Close', cls: 'btn-primary', onClick: () => m.close() })));
+    h('div', { class: 'modal-actions' }, isDesktop ? button({ label: 'Check for updates', cls: 'btn-outline', onClick: () => { m.close(); updateDialog(app); } }) : null, button({ label: 'Close', cls: 'btn-primary', onClick: () => m.close() })));
 }
 
 export { clear };

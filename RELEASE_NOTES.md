@@ -1,42 +1,32 @@
-# DabbleCAD 1.1.0
+# DabbleCAD 1.2.0
 
-A feature release: more reliable solids for 3D printing, new modelling tools, and
-new laser tools.
+## New: update from inside the app
 
-## 3D design
+**Settings → Updates → Check for updates** (also in the About dialog) looks for a newer
+release on GitHub, downloads the build for your computer, verifies it against the
+release's SHA-256 list, and installs it. Your designs and settings are kept.
 
-- **Watertight groups.** Grouping now runs on a solid-modelling kernel (Manifold), so
-  combined shapes are closed, printable meshes. Large groups are several times faster.
-- **Edit inside a group.** Double-click a group, change or add parts, press Done.
-- **Round or bevel edges** of any shape or group from the Edges section.
-- **Sketch.** Draw rectangles, circles, and polygons with typed sizes and cut-outs,
-  then pull the outline into 3D.
-- **Generators** in real millimetres: bolt, nut, standoff, hinge, snap clip, and a
-  box with a fitted lid.
-- **Print check.** Finds open meshes, floating parts, thin walls, overhangs, and
-  designs that do not fit your printer bed.
-- **Open in slicer**, and STL export that fuses overlapping shapes into one solid.
-- Bevelled text is now a closed solid (previously it could export broken meshes).
-- A getting-started guide on first launch.
+- **Windows, installed:** installs over the current copy and restarts the app.
+- **Windows, portable ZIP:** downloads the new ZIP and shows it in its folder.
+- **Mac:** opens the disk image so you can drag the new app into Applications.
+- **Linux AppImage:** replaces the AppImage and restarts.
 
-## Laser
+The start-up notice about new versions now offers "Update now".
 
-- **Box maker** for finger-jointed boxes.
-- **Material library** for your own saved speed and power settings.
-- **Depth-map slice passes:** engrave a relief pass by pass, one layer per slice.
+This is the first version with the updater, so it can only update to versions
+released after it. If you are on 1.1.0 or older, download this release by hand once.
 
-## Other
+## Also in this release
 
-- Icon buttons, dialogs, menus, and the shape panel now work with the keyboard and
-  announce themselves to screen readers.
-- The app can tell you when a newer release exists. This is one anonymous request to
-  GitHub at start-up; turn it off under Settings → Updates to stay fully offline.
+- Bevelled text that would leave invalid mesh edges is reduced automatically, and
+  collapsed facets are left out of STL files (thanks to @swpswpswp).
 
 ## Not verified
 
-The new tools pass automated checks only. Nothing here has been printed or laser-cut:
-test generator fits, box-maker kerf, and slice-pass settings on scrap material first.
-"Open in slicer" has not been tried against a real slicer install.
+Checking, downloading and checksum verification were tested against a real release.
+The final step, running the installer and restarting, has not been exercised
+end to end on any platform. If an update does not complete, download the new version
+from the release page; your designs and settings are unaffected.
 
 DabbleCAD is an offline, open-source alternative to Tinkercad for 3D design and 3D
 printing, with a laser workspace and depth-map tools alongside. It is an independent
@@ -45,11 +35,11 @@ Autodesk, Inc.
 
 ## Downloads
 
-- `DabbleCAD-1.1.0-win-x64-setup.exe`: Windows installer.
-- `DabbleCAD-1.1.0-win-x64.zip`: portable/no-install Windows app; extract everything.
-- `DabbleCAD-1.1.0-mac-arm64.dmg` / `.zip`: Apple Silicon Mac.
-- `DabbleCAD-1.1.0-mac-x64.dmg` / `.zip`: Intel Mac.
-- `DabbleCAD-1.1.0-linux-x64.AppImage`: Linux x64.
+- `DabbleCAD-1.2.0-win-x64-setup.exe`: Windows installer.
+- `DabbleCAD-1.2.0-win-x64.zip`: portable/no-install Windows app; extract everything.
+- `DabbleCAD-1.2.0-mac-arm64.dmg` / `.zip`: Apple Silicon Mac.
+- `DabbleCAD-1.2.0-mac-x64.dmg` / `.zip`: Intel Mac.
+- `DabbleCAD-1.2.0-linux-x64.AppImage`: Linux x64.
 - `SHA256SUMS.txt`: checksums for these seven files.
 
 **All desktop variants work offline once downloaded.** Normal editing, local

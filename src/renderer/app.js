@@ -13,7 +13,7 @@ import { ShapesPanel } from './ui/shapespanel.js';
 import { Dashboard } from './ui/dashboard.js';
 import { scribbleDialog } from './ui/scribble.js';
 import { sketchDialog } from './ui/sketch.js';
-import { settingsDialog, gridDialog, exportDialog, shortcutsDialog, welcomeDialog, statsDialog, patternDialog, noteDialog, aboutDialog, saveChangesDialog } from './ui/dialogs.js';
+import { settingsDialog, gridDialog, exportDialog, shortcutsDialog, welcomeDialog, updateDialog, statsDialog, patternDialog, noteDialog, aboutDialog, saveChangesDialog } from './ui/dialogs.js';
 import { newDoc, serializeDoc, deserializeDoc, uid, walk, countShapes } from './core/doc.js';
 import { initFonts, ensureFont } from './core/fonts.js';
 import { kindName } from './core/shapes.js';
@@ -438,7 +438,7 @@ export class App {
     if (this.settings.checkUpdates === false) return;
     const u = await platform.checkUpdate().catch(() => null);
     if (!u) return;
-    const link = h('a', { href: '#', onClick: (e) => { e.preventDefault(); platform.openExternal(u.url); } }, 'See what is new');
+    const link = h('a', { href: '#', onClick: (e) => { e.preventDefault(); updateDialog(this, u); } }, 'Update now');
     toast(h('span', {}, `DabbleCAD ${u.latest} is available (you have ${u.current}). `, link), 'info', 15000);
   }
 

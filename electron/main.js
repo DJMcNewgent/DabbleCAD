@@ -1,6 +1,7 @@
 // DabbleCAD - Electron main process
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, net } = require('electron');
 const { spawn } = require('node:child_process');
+const { registerUpdater } = require('./updater');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -335,23 +336,7 @@ ipcMain.handle('dialog:pick-app', async () => {
   return res.canceled || !res.filePaths.length ? null : res.filePaths[0];
 });
 
-// Optional update notice: one anonymous request to GitHub's public release list.
-ipcMain.handle('update:check', async () => {
-  if (SMOKE || settings.checkUpdates === false) return null;
-  try {
-    const res = await net.fetch('https://api.github.com/repos/DJMcNewgent/DabbleCAD/releases/latest', { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'DabbleCAD' } });
-    if (!res.ok) return null;
-    const body = await res.json();
-    const latest = String(body.tag_name || '').replace(/^v/, '');
-    const num = (v) => v.split('.').map((n) => parseInt(n, 10) || 0);
-    const a = num(latest), b = num(app.getVersion());
-    let newer = false;
-    for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== (b[i] || 0)) { newer = (a[i] || 0) > (b[i] || 0); break; } }
-    return newer ? { latest, current: app.getVersion(), url: 'https://github.com/DJMcNewgent/DabbleCAD/releases/latest' } : null;
-  } catch {
-    return null; // offline, blocked or rate limited: stay quiet
-  }
-});
+registerUpdater({ ipcMain, app, net, shell, getWindow: () => win, getSettings: () => settings, smoke: !!SMOKE, argValue });
 ipcMain.handle('shell:open-external', (_e, url) => {
   if (typeof url === 'string' && /^https:\/\/github\.com\/DJMcNewgent\//.test(url)) shell.openExternal(url);
 });

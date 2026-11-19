@@ -455,3 +455,8 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .welcome-dots { display: flex; gap: 6px; align-items: center; flex: 1; }
 .welcome-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
 .welcome-dots i.on { background: var(--accent, #4c8dff); }
+
+/* updates */
+.update-status { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+.update-bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin: 12px 0; }
+.update-bar i { display: block; height: 100%; width: 0; background: var(--accent, #4c8dff); transition: width .15s linear; }

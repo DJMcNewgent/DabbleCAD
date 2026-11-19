@@ -89,6 +89,17 @@ check('scribble', ed.doc.nodes.length === before + 1 && ed.selectedNodes()[0].ki
 const sb = ed.bounds(ed.selectedNodes()); out.scribbleSize = [sb.max.x - sb.min.x, sb.max.y - sb.min.y, sb.max.z - sb.min.z].map((v) => +v.toFixed(1));
 ed.clearSelection(); vp.home(); await wait(500);
 await shot('s-final');
+// update dialog: reachable from Settings, and it fails politely when no check is possible
+{
+  document.querySelector('.btn[title="Settings"]').click(); await wait(250);
+  const ub = [...document.querySelectorAll('.modal button')].find((b) => b.textContent === 'Check for updates');
+  check('update-button', !!ub);
+  ub.click(); await wait(400);
+  const um = document.querySelector('.modal');
+  out.updateText = um.querySelector('.update-status').textContent;
+  check('update-dialog', um.getAttribute('aria-label') === 'Updates' && out.updateText === 'Could not check for updates' && [...um.querySelectorAll('button')].some((b) => b.textContent === 'Try again'), out.updateText);
+  um.querySelector('.modal-head .btn').click(); await wait(60);
+}
 // accessibility basics and the getting-started guide
 {
   const unnamed = [...document.querySelectorAll('button.btn')].filter((b) => !b.textContent.trim() && !b.getAttribute('aria-label'));

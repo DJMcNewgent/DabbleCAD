@@ -70,12 +70,26 @@ Windows app, the extracted portable ZIP, and the Mac app.
 No account or cloud service is required for these workflows. Internet is needed to
 download the app or a new version, visit external links, and initially install
 development dependencies or any device drivers your computer needs. There is no
-automatic updater or cloud sync.
+cloud sync, and nothing updates without you asking.
 
 The one thing the app does online by itself: when it starts, it asks GitHub whether a
 newer release exists and shows a note if so. The request carries nothing about you or
 your designs, fails silently when you are offline, and can be switched off under
 **Settings → Updates**.
+
+### Updating
+
+**Settings → Updates → Check for updates** (also in the About dialog) looks for a newer
+release on GitHub, downloads the build for your computer, and checks it against the
+release's SHA-256 list before using it.
+
+- **Windows, installed:** the new version installs over the old one and the app restarts.
+- **Windows, portable ZIP:** the new ZIP is downloaded and shown in its folder.
+- **Mac:** the disk image opens so you can drag the new app into Applications.
+- **Linux AppImage:** the AppImage is replaced and the app restarts.
+
+Your designs and settings live in your user data folder, not in the app folder, so
+they carry over to the new version.
 
 ## Download and install
 
