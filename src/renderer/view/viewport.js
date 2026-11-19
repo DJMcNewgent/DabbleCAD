@@ -77,6 +77,8 @@ export class Viewport {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.canvas = this.renderer.domElement;
+    this.canvas.setAttribute('aria-label', '3D design view');
+    this.canvas.setAttribute('role', 'img');
     this.canvas.className = 'viewport-canvas';
     container.appendChild(this.canvas);
 

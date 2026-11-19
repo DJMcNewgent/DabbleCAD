@@ -1,5 +1,6 @@
 // Shape inspector: Solid / Hole, colour, shape parameters, numeric position / size / rotation.
-import { h, clear, button, icon } from './dom.js';
+import { h, clear, button, icon, toast } from './dom.js';
+import { stats as geoStats } from '../core/geometry.js';
 import { KINDS, kindName } from '../core/shapes.js';
 import { PALETTE } from '../core/doc.js';
 import { listFontNames, ensureFont } from '../core/fonts.js';
@@ -10,7 +11,7 @@ export class Inspector {
     this.editor = editor;
     this.host = host;
     this.app = app;
-    this.open = { params: true, transform: false };
+    this.open = { params: true, transform: false, edges: false };
     this.numberFields = [];
     editor.on('selection', () => this.render());
     editor.on('transform', () => this.updateNumbers());
@@ -57,6 +58,9 @@ export class Inspector {
     if (sameKind && KINDS[first.kind]) {
       const defs = KINDS[first.kind].params;
       const rows = defs.map((def) => this._param(def, first));
+      if (first.kind === 'extrusion' && first.params.sketch && nodes.length === 1) {
+        rows.push(button({ label: 'Edit sketch', icon: 'pencil', cls: 'btn-outline', onClick: () => this.app.openSketch(first) }));
+      }
       if (first.kind === 'extrusion' && first.params.image && nodes.length === 1) {
         rows.push(button({ label: 'Edit scribble', icon: 'pencil', cls: 'btn-outline', onClick: () => this.app.openScribble(first) }));
       }
@@ -70,11 +74,42 @@ export class Inspector {
         rows.push(h('label', { class: 'check' }, cb, 'Multicolor'));
       }
       rows.push(h('div', { class: 'insp-note' }, `${first.children.length} parts · ${first.mode === 'bundle' ? 'Bundle (parts stay separate)' : first.mode === 'intersect' ? 'Intersection' : 'Union'}`));
-      rows.push(button({ label: 'Ungroup', icon: 'ungroup', cls: 'btn-outline', onClick: () => ed.ungroup() }));
+      rows.push(h('div', { class: 'insp-row-btns' }, button({ label: 'Edit parts', icon: 'pencil', cls: 'btn-outline', title: 'Change the parts inside this group without ungrouping (or double-click the group)', onClick: () => ed.enterGroup(first) }), button({ label: 'Ungroup', icon: 'ungroup', cls: 'btn-outline', onClick: () => ed.ungroup() })));
       this.host.append(this._section('params', 'Group', rows));
     }
+    this.host.append(this._edgesSection(nodes));
     this.host.append(this._transformSection());
     this.updateNumbers();
+  }
+
+  // Round or bevel the outside edges of any shape or group (applied when the slider is released).
+  _edgesSection(nodes) {
+    const ed = this.editor, first = nodes[0];
+    const value = first.round || 0;
+    const range = h('input', { type: 'range', min: 0, max: 5, step: 0.1, value });
+    const num = h('input', { class: 'input', type: 'number', min: 0, max: 5, step: 0.1, value });
+    const note = h('div', { class: 'insp-note' }, 'Softens every outside edge. Overall size stays the same; holes and gaps get slightly tighter. Complex shapes can take a few seconds.');
+    const apply = async (v) => {
+      v = Math.min(5, Math.max(0, v));
+      if (!isFinite(v)) return;
+      range.value = v; num.value = v;
+      geoStats.roundSkipped = null;
+      await ed._busy(() => ed.patchSelection({ round: v }));
+      const why = geoStats.roundSkipped;
+      if (v > 0 && why) toast(why === 'detail' ? 'This shape has too much detail to round' : 'This shape is not a closed solid, so its edges cannot be rounded', 'warn', 4000);
+    };
+    range.addEventListener('input', () => { num.value = range.value; });
+    range.addEventListener('change', () => { apply(parseFloat(range.value)); range.blur(); });
+    num.addEventListener('change', () => apply(parseFloat(num.value)));
+    num.addEventListener('keydown', (e) => e.stopPropagation());
+    const style = h('select', { class: 'input' }, h('option', { value: 'round' }, 'Round'), h('option', { value: 'bevel' }, 'Bevel'));
+    style.value = first.roundStyle === 'bevel' ? 'bevel' : 'round';
+    style.addEventListener('change', () => ed._busy(() => ed.patchSelection({ roundStyle: style.value })));
+    return this._section('edges', 'Edges', [
+      h('div', { class: 'param' }, h('label', {}, 'Radius'), range, num),
+      h('div', { class: 'param' }, h('label', {}, 'Style'), style),
+      note,
+    ]);
   }
 
   _section(key, title, rows) {

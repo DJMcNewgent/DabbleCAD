@@ -6,6 +6,7 @@ import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-
 import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
 import { KINDS } from './shapes.js';
 import { geomKey, mat4 } from './doc.js';
+import { solidBoolean, withSolid } from './solid.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -14,7 +15,7 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 const CREASE = 0.58; // ~33 degrees
 const cache = new Map();
 const CACHE_LIMIT = 500;
-export const stats = { csgRuns: 0, csgFailures: 0, lastCsgMs: 0 };
+export const stats = { csgRuns: 0, csgFailures: 0, lastCsgMs: 0, solidRuns: 0, fallbackRuns: 0 };
 
 const evaluator = new Evaluator();
 evaluator.attributes = ['position', 'normal', 'color'];
@@ -135,6 +136,16 @@ function buildGroup(node) {
   if (!ops.length) return emptyGeometry();
   const t0 = performance.now();
   stats.csgRuns += 1;
+  // Preferred path: the solid kernel, which always returns a closed, printable mesh.
+  const solid = solidBoolean(solids, holes, node.mode);
+  if (solid) {
+    stats.solidRuns += 1;
+    stats.lastCsgMs = performance.now() - t0;
+    if (!solid.attributes.position.count) return emptyGeometry();
+    return toCreasedNormals(solid, CREASE);
+  }
+  // Fallback for operands that are not closed solids (e.g. some imported meshes).
+  stats.fallbackRuns += 1;
   try {
     let result;
     if (!solids.length) {
@@ -164,6 +175,33 @@ function buildGroup(node) {
   }
 }
 
+export const ROUND_LIMIT = 6000; // triangles; beyond this the operation takes too long to be usable
+
+/**
+ * Round (or bevel) every outside edge without removing material: the solid is shrunk
+ * towards its centre by the radius and then grown back by a ball, so the overall size is
+ * unchanged. Holes and gaps end up slightly tighter. Returns the input when it cannot run.
+ */
+function roundEdges(base, radius, style) {
+  const tris = triCount(base);
+  stats.roundSkipped = null;
+  if (tris < 4 || tris > ROUND_LIMIT) { stats.roundSkipped = tris > ROUND_LIMIT ? 'detail' : 'empty'; return base.clone(); }
+  const bb = base.boundingBox;
+  const size = [bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z];
+  const c = [(bb.max.x + bb.min.x) / 2, (bb.max.y + bb.min.y) / 2, (bb.max.z + bb.min.z) / 2];
+  const r = Math.min(radius, Math.min(...size) / 2 - 0.05);
+  if (!(r > 0.01)) return base.clone();
+  const flat = base.index ? base.toNonIndexed() : base;
+  const out = withSolid(flat, (api, s, k) => {
+    const ball = k(api.Manifold.sphere(r, style === 'bevel' ? 4 : 8));
+    const scale = size.map((v) => (v - 2 * r) / v);
+    const small = k(k(k(s.translate(-c[0], -c[1], -c[2])).scale(scale)).translate(c[0], c[1], c[2]));
+    return small.minkowskiSum(ball);
+  });
+  if (!out || !out.attributes.position.count) { stats.roundSkipped = 'open'; return base.clone(); }
+  return toCreasedNormals(out, style === 'bevel' ? 0.2 : CREASE);
+}
+
 function emptyGeometry() {
   const g = new THREE.BufferGeometry();
   for (const name of ['position', 'normal', 'color']) g.setAttribute(name, new THREE.BufferAttribute(new Float32Array(0), 3));
@@ -178,7 +216,9 @@ export function getGeometry(node) {
     cache.set(key, g);
     return g;
   }
-  if (node.type === 'group') {
+  if (node.round > 0) {
+    g = finalize(roundEdges(getGeometry({ ...node, round: 0 }), node.round, node.roundStyle));
+  } else if (node.type === 'group') {
     g = finalize(buildGroup(node));
   } else {
     const def = KINDS[node.kind];

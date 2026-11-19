@@ -4,6 +4,7 @@ import { platform, isDesktop } from '../platform.js';
 import { EXPORT_FORMATS } from '../core/io.js';
 import { formatLength } from '../view/gizmo.js';
 import { countShapes } from '../core/doc.js';
+import { printCheckDialog } from './printdialog.js';
 
 const toggle = (checked, onChange) => {
   const input = h('input', { type: 'checkbox', checked });
@@ -67,6 +68,13 @@ export async function settingsDialog(app) {
     h('div', { class: 'set-group' }, h('h4', {}, 'Files'),
       row('Auto-save', 'Designs are saved to your library as you work.', toggle(s.autosave !== false, (v) => app.patchSettings({ autosave: v }))),
       isDesktop ? row('Design library', 'Where DabbleCAD keeps your designs.', button({ label: 'Open folder', icon: 'folder', cls: 'btn-outline', onClick: () => platform.openDesignsFolder() })) : null),
+    isDesktop ? h('div', { class: 'set-group' }, h('h4', {}, '3D printing'),
+      row('Slicer', s.slicerPath ? s.slicerPath : 'Not set: "Open in slicer" uses whatever app opens 3MF files on this computer.', h('div', { class: 'set-btns' },
+        button({ label: 'Choose…', cls: 'btn-outline', onClick: async () => { const p = await platform.pickApp(); if (p) { app.patchSettings({ slicerPath: p }); toast('Slicer set'); m.close(); settingsDialog(app); } } }),
+        s.slicerPath ? button({ label: 'Clear', cls: 'btn-ghost', onClick: () => { app.patchSettings({ slicerPath: '' }); m.close(); settingsDialog(app); } }) : null)),
+      row('Send to slicer as STL', 'Off sends 3MF, which keeps colours and separate parts.', toggle(s.slicerFormat === 'stl', (v) => app.patchSettings({ slicerFormat: v ? 'stl' : '3mf' })))) : null,
+    isDesktop ? h('div', { class: 'set-group' }, h('h4', {}, 'Updates'),
+      row('Tell me about new versions', 'Asks GitHub for the latest release when the app starts. Nothing about you or your designs is sent. Turn off to stay fully offline.', toggle(s.checkUpdates !== false, (v) => app.patchSettings({ checkUpdates: v })))) : null,
     h('div', { class: 'set-group' }, h('h4', {}, 'About'),
       row(`DabbleCAD ${s.version || ''}`, 'Created by DJMcNewgent · open source under the Apache License 2.0.', button({ label: 'About', icon: 'info', cls: 'btn-outline', onClick: () => aboutDialog(app) }))));
   void pendingRestart;
@@ -111,6 +119,7 @@ export function exportDialog(app) {
   const ed = app.editor;
   const m = modal({ title: 'Download', width: 520 });
   let selectedOnly = false;
+  let fuse = true;
   const seg = h('div', { class: 'segmented' });
   const all = button({ label: 'Everything in the design', cls: 'active', onClick: () => set(false) });
   const sel = button({ label: 'The selected shapes', cls: ed.selection.size ? '' : 'disabled', onClick: () => set(true) });
@@ -119,7 +128,7 @@ export function exportDialog(app) {
   const grid = h('div', { class: 'format-grid' });
   for (const f of EXPORT_FORMATS) {
     const b = h('button', { class: 'format-btn', type: 'button' }, h('b', {}, '.' + f.id.toUpperCase()), h('small', {}, f.hint));
-    b.addEventListener('click', async () => { m.close(); await app.exportAs(f.id, selectedOnly); });
+    b.addEventListener('click', async () => { m.close(); await app.exportAs(f.id, selectedOnly, { fuse }); });
     grid.append(b);
   }
   const shot = h('button', { class: 'format-btn', type: 'button' }, h('b', {}, '.PNG'), h('small', {}, 'Picture of the current view'));
@@ -128,7 +137,11 @@ export function exportDialog(app) {
   file.addEventListener('click', async () => { m.close(); await app.saveCopy(); });
   grid.append(shot, file);
   m.body.append(h('div', { class: 'field' }, h('span', {}, 'Include'), seg), h('div', { class: 'field' }, h('span', {}, 'Format'), grid),
-    h('div', { class: 'insp-note' }, 'Holes are never exported on their own. Hidden shapes are skipped. Sizes are in millimetres.'));
+    h('label', { class: 'check' }, (() => { const cb = h('input', { type: 'checkbox', checked: true }); cb.addEventListener('change', () => { fuse = cb.checked; }); return cb; })(), 'Fuse overlapping shapes into one solid (STL)'),
+    h('div', { class: 'insp-note' }, 'Holes are never exported on their own. Hidden shapes are skipped. Sizes are in millimetres.'),
+    h('div', { class: 'modal-actions' },
+      button({ label: 'Print check', icon: 'stats', cls: 'btn-outline', title: 'Look for problems before you print', onClick: () => { m.close(); printCheckDialog(app, { selectedOnly }); } }),
+      isDesktop ? button({ label: 'Open in slicer', icon: 'export', cls: 'btn-outline', title: 'Send the design straight to your slicer', onClick: () => { m.close(); app.openInSlicer(selectedOnly); } }) : null));
 }
 
 const SHORTCUTS = [
@@ -141,8 +154,55 @@ const SHORTCUTS = [
     ['Group (union)', 'Ctrl + G'], ['Intersect group', 'Ctrl + I'], ['Bundle', 'Ctrl + B'], ['Ungroup', 'Ctrl + Shift + G'], ['Add to / remove from selection', 'Shift + click'], ['Box select', 'Drag on empty space']]],
 ];
 
-export function shortcutsDialog() {
+const WELCOME = [
+  ['Welcome to DabbleCAD', 'Build things for 3D printing by combining simple shapes. This short guide covers the basics; it takes about a minute.', [
+    'Everything runs on this computer. Your designs are saved here automatically.',
+    'You can reopen this guide any time from the ? button in the top bar.']],
+  ['1. Put a shape on the workplane', null, [
+    'Drag a shape from the panel on the right onto the grid, or click it and then click where you want it.',
+    'Sketch lets you draw an exact outline with typed sizes. Generators make real-size bolts, nuts, hinges and boxes.']],
+  ['2. Move, size and turn it', null, [
+    'Drag a shape to move it. Drag the white squares to resize; click a size label to type an exact number.',
+    'Drag the black cone to lift it off the workplane, and the curved arrows to rotate.',
+    'Arrow keys nudge the selection. Ctrl + Z undoes anything.']],
+  ['3. Look around', null, [
+    'Right-drag to orbit, middle-drag (or Shift + right-drag) to pan, scroll to zoom.',
+    'Press F to zoom to the selection, or click a face of the cube in the top-left corner.']],
+  ['4. Cut holes and join parts', null, [
+    'Select a shape and choose Hole to turn it into a cutting tool.',
+    'Select the hole together with a solid and press Group: the hole is cut out and the parts become one.',
+    'Double-click a group to change its parts later, or press Ungroup to split it again.']],
+  ['5. Print it', null, [
+    'Press Export. Print check looks for problems such as parts floating in mid-air or walls too thin to print.',
+    'Save an STL or 3MF for your slicer, or send it straight there with Open in slicer.',
+    'The Laser tab at the top has its own workspace for cutting, engraving and depth maps.']],
+];
+
+export function welcomeDialog(app) {
+  let step = 0;
+  const m = modal({ title: 'Getting started', width: 560, onClose: () => { if (app.settings.welcomeSeen !== true) app.patchSettings({ welcomeSeen: true }); } });
+  const body = h('div', { class: 'welcome-step' });
+  const dots = h('div', { class: 'welcome-dots', 'aria-hidden': 'true' });
+  const back = button({ label: 'Back', cls: 'btn-outline', onClick: () => { step -= 1; render(); } });
+  const next = button({ label: 'Next', cls: 'btn-primary', onClick: () => { if (step === WELCOME.length - 1) m.close(); else { step += 1; render(); } } });
+  function render() {
+    const [title, intro, points] = WELCOME[step];
+    clear(body);
+    body.append(h('h3', {}, title), ...(intro ? [h('p', {}, intro)] : []), h('ul', {}, points.map((p) => h('li', {}, p))));
+    clear(dots);
+    WELCOME.forEach((_, i) => dots.append(h('i', { class: i === step ? 'on' : '' })));
+    back.style.visibility = step ? '' : 'hidden';
+    next.querySelector('.btn-label').textContent = step === WELCOME.length - 1 ? 'Start designing' : 'Next';
+    m.el.setAttribute('aria-label', 'Getting started: ' + title);
+  }
+  m.body.append(body, h('div', { class: 'modal-actions' }, dots, back, next));
+  render();
+  return m;
+}
+
+export function shortcutsDialog(app) {
   const m = modal({ title: 'Keyboard and mouse shortcuts', width: 760 });
+  if (app) m.body.append(h('div', { style: { marginBottom: '12px' } }, button({ label: 'Show the getting-started guide', cls: 'btn-outline', onClick: () => { m.close(); welcomeDialog(app); } })));
   m.body.append(h('div', { class: 'shortcut-cols' }, SHORTCUTS.map(([title, rows]) =>
     h('div', { class: 'shortcut-group' }, h('h4', {}, title), rows.map(([a, b]) => h('div', { class: 'shortcut-row' }, h('span', {}, a), h('span', { class: 'kbd' }, b)))))));
 }
@@ -222,7 +282,7 @@ export function saveChangesDialog(name) {
 }
 
 const THIRD_PARTY = [
-  ['Electron', 'MIT'], ['three.js', 'MIT'], ['three-mesh-bvh', 'MIT'], ['three-bvh-csg', 'MIT'], ['opentype.js', 'MIT'],
+  ['Electron', 'MIT'], ['three.js', 'MIT'], ['three-mesh-bvh', 'MIT'], ['three-bvh-csg', 'MIT'], ['Manifold', 'Apache 2.0'], ['opentype.js', 'MIT'],
   ['qrcode-generator', 'MIT'], ['Clipper (clipper-lib)', 'Boost Software License 1.0'], ['Roboto font (Fontsource)', 'SIL Open Font License 1.1'],
 ];
 

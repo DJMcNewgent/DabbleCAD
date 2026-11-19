@@ -411,3 +411,47 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .dm-val { font-size: 11.5px; color: var(--muted); text-align: right; white-space: nowrap; }
 .dm-advice { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 6px; }
 .dm-advice .btn { margin-top: 6px; height: 28px; }
+
+.insp-row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* print check */
+.pc-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.pc-item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.pc-mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: #fff; }
+.pc-ok .pc-mark { background: #2e9e6b; } .pc-warn .pc-mark { background: #d98a1f; } .pc-error .pc-mark { background: #d64545; }
+.pc-text { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.pc-text small { opacity: 0.72; line-height: 1.4; }
+.pc-verdict { font-size: 16px; font-weight: 600; }
+.pc-verdict.pc-ok { color: #2e9e6b; } .pc-verdict.pc-warn { color: #d98a1f; } .pc-verdict.pc-error { color: #d64545; }
+.pc-bed-inputs { display: flex; gap: 8px; align-items: center; } .pc-bed-inputs .input { width: 84px; }
+.set-btns { display: flex; gap: 6px; }
+.toast a { color: inherit; text-decoration: underline; }
+
+/* sketch editor */
+.sketch-main { display: flex; gap: 14px; align-items: flex-start; }
+.sketch-canvas { width: 760px; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; cursor: crosshair; touch-action: none; outline: none; }
+.sketch-canvas:focus-visible { box-shadow: 0 0 0 2px var(--accent, #4c8dff); }
+.sketch-side { width: 240px; flex: none; display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow: auto; }
+.sketch-side h4 { margin: 6px 0 0; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
+.sketch-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.sketch-field .input { width: 96px; }
+.sketch-point { display: flex; gap: 6px; align-items: center; } .sketch-point > span { width: 16px; opacity: .6; font-size: 12px; }
+.sketch-point .sketch-field .input { width: 70px; } .sketch-points { display: flex; flex-direction: column; gap: 4px; }
+
+.le-material { display: flex; gap: 6px; align-items: center; } .le-material .select { flex: 1; min-width: 0; }
+
+/* keyboard focus */
+.btn:focus-visible, .menu-item:focus-visible, .shape-tile:focus-visible, .ws-tab:focus-visible, .kind-btn:focus-visible, .format-btn:focus-visible,
+.input:focus-visible, .select:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible, .dash-card:focus-visible {
+  outline: 2px solid var(--accent, #4c8dff); outline-offset: 2px;
+}
+.modal:focus { outline: none; }
+.menu-item:focus-visible { outline-offset: -2px; }
+/* welcome guide */
+.welcome-step { min-height: 190px; display: flex; flex-direction: column; gap: 10px; }
+.welcome-step h3 { margin: 0; font-size: 19px; }
+.welcome-step p, .welcome-step li { line-height: 1.55; margin: 0; }
+.welcome-step ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.welcome-dots { display: flex; gap: 6px; align-items: center; flex: 1; }
+.welcome-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+.welcome-dots i.on { background: var(--accent, #4c8dff); }

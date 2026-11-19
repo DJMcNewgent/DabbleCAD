@@ -112,16 +112,19 @@ export function icon(name, size = 20) {
 export function button(opts) {
   const { icon: ic, label, title, onClick, cls = '', size } = opts;
   const b = h('button', { class: 'btn ' + cls, title: title || label || '', type: 'button' });
+  // icon-only buttons need a spoken name; the tooltip text doubles as it
+  if (!label && title) b.setAttribute('aria-label', title);
   if (ic) b.append(icon(ic, size));
   if (label) b.append(h('span', { class: 'btn-label' }, label));
-  if (onClick) b.addEventListener('click', (e) => { onClick(e); b.blur(); });
+  // keep focus on the button for keyboard users (detail is 0 for Enter / Space), drop it after a mouse click
+  if (onClick) b.addEventListener('click', (e) => { onClick(e); if (e.detail) b.blur(); });
   return b;
 }
 
 let toastHost = null;
 export function toast(message, kind = 'info', ms = 2600) {
   if (!toastHost) {
-    toastHost = h('div', { class: 'toast-host' });
+    toastHost = h('div', { class: 'toast-host', role: 'status', 'aria-live': 'polite' });
     document.body.append(toastHost);
   }
   const t = h('div', { class: 'toast toast-' + kind }, message);
@@ -133,12 +136,26 @@ export function toast(message, kind = 'info', ms = 2600) {
 /** Modal dialog. Returns { el, body, close }. */
 export function modal({ title, width = 520, onClose, cls = '' }) {
   const body = h('div', { class: 'modal-body' });
+  const opener = document.activeElement;
+  const focusable = () => [...el.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((n) => !n.disabled && n.offsetParent !== null);
   const close = () => {
     backdrop.remove();
     document.removeEventListener('keydown', onKey, true);
     if (onClose) onClose();
+    if (opener && opener.focus && document.body.contains(opener)) opener.focus();
   };
   const onKey = (e) => {
+    const top = () => { const all = document.querySelectorAll('.modal-backdrop'); return all[all.length - 1] === backdrop; };
+    if (e.key === 'Tab' && top()) {
+      // keep keyboard focus inside the dialog
+      const list = focusable();
+      if (!list.length) return;
+      const first = list[0], lastEl = list[list.length - 1];
+      if (!el.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); lastEl.focus(); }
+      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); first.focus(); }
+      return;
+    }
     if (e.key !== 'Escape') return;
     // only the top-most dialog closes, and an open popup menu gets the Escape first
     const all = document.querySelectorAll('.modal-backdrop');
@@ -146,12 +163,14 @@ export function modal({ title, width = 520, onClose, cls = '' }) {
     e.stopPropagation();
     close();
   };
-  const el = h('div', { class: 'modal ' + cls, style: { width: width + 'px' } },
+  const el = h('div', { class: 'modal ' + cls, style: { width: width + 'px' }, role: 'dialog', 'aria-modal': 'true', 'aria-label': title, tabindex: '-1' },
     h('div', { class: 'modal-head' }, h('div', { class: 'modal-title' }, title), button({ icon: 'close', title: 'Close', cls: 'btn-ghost', onClick: close })),
     body);
   const backdrop = h('div', { class: 'modal-backdrop', onMousedown: (e) => { if (e.target === backdrop) close(); } }, el);
   document.body.append(backdrop);
   document.addEventListener('keydown', onKey, true);
+  // move focus into the dialog once its content exists (callers fill the body right after this returns)
+  setTimeout(() => { if (document.body.contains(el) && !el.contains(document.activeElement)) { const target = body.querySelector('input:not([type="checkbox"]):not([type="range"]), textarea, select') || el; try { target.focus({ preventScroll: true }); } catch { /* not focusable */ } } }, 0);
   return { el, body, close };
 }
 
@@ -183,11 +202,12 @@ export function promptDialog(title, label, value = '') {
 /** Floating menu anchored at a point or element. items: [{label, icon, shortcut, onClick, disabled, checked} | 'sep'] */
 export function popupMenu(items, at) {
   document.querySelectorAll('.menu').forEach((m) => m.remove());
-  const menu = h('div', { class: 'menu' });
+  const menu = h('div', { class: 'menu', role: 'menu' });
+  const opener = document.activeElement;
   for (const it of items) {
     if (!it) continue;
     if (it === 'sep') { menu.append(h('div', { class: 'menu-sep' })); continue; }
-    const row = h('button', { class: 'menu-item' + (it.disabled ? ' disabled' : ''), type: 'button' },
+    const row = h('button', { class: 'menu-item' + (it.disabled ? ' disabled' : ''), type: 'button', role: 'menuitem', 'aria-disabled': it.disabled ? 'true' : 'false' },
       h('span', { class: 'menu-icon' }, it.checked ? icon('check', 16) : it.icon ? icon(it.icon, 16) : null),
       h('span', { class: 'menu-label' }, it.label),
       it.shortcut ? h('span', { class: 'menu-shortcut' }, it.shortcut) : null);
@@ -209,7 +229,18 @@ export function popupMenu(items, at) {
     document.removeEventListener('keydown', esc, true);
   };
   const outside = (e) => { if (!menu.contains(e.target)) close(); };
-  const esc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const esc = (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); close(); if (opener && opener.focus && document.body.contains(opener)) opener.focus(); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+    const rows = [...menu.querySelectorAll('.menu-item:not(.disabled)')];
+    if (!rows.length) return;
+    e.preventDefault(); e.stopPropagation();
+    const i = rows.indexOf(document.activeElement);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? rows.length - 1 : e.key === 'ArrowDown' ? (i + 1) % rows.length : (i - 1 + rows.length) % rows.length;
+    rows[next].focus();
+  };
+  // a menu opened from the keyboard starts with its first item focused
+  if (opener && opener.matches && opener.matches(':focus-visible')) { const first = menu.querySelector('.menu-item:not(.disabled)'); if (first) first.focus(); }
   setTimeout(() => {
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', esc, true);

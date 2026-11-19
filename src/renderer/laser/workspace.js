@@ -1,5 +1,5 @@
 // Laser workspace: 2D canvas editor, layers, machine control. Owns its own tools and shortcuts.
-import { h, clear, button, icon, toast, popupMenu } from '../ui/dom.js';
+import { h, clear, button, icon, toast, popupMenu, promptDialog } from '../ui/dom.js';
 import { platform } from '../platform.js';
 import { listFontNames, ensureFont } from '../core/fonts.js';
 import {
@@ -10,6 +10,7 @@ import { DEFAULT_MACHINE, planJob, toGcode, frameGcode, toMachine, usedLayers, f
 import { LaserDevice } from './device.js';
 import * as tools from './tools.js';
 import { depthMapStudio } from './depthmap.js';
+import { boxMakerDialog } from './boxmaker.js';
 
 const RULER = 22;
 const HANDLES = [[0, 0], [0.5, 0], [1, 0], [1, 0.5], [1, 1], [0.5, 1], [0, 1], [0, 0.5]];
@@ -123,7 +124,7 @@ export class LaserWorkspace {
   _build() {
     const tb = (ic, title, onClick, label) => button({ icon: ic, title, onClick, label });
     const menuBtn = (label, ic, items) => { const b = button({ icon: ic, label, title: label, onClick: () => popupMenu(items(), b) }); return b; };
-    this.toolbar = h('div', { class: 'toolbar laser-toolbar' },
+    this.toolbar = h('div', { class: 'toolbar laser-toolbar', role: 'toolbar', 'aria-label': 'Laser tools' },
       tb('import', 'Import SVG, DXF or images (Ctrl+I)', () => this.importDialog(), 'Import'),
       menuBtn('Export', 'export', () => [
         { label: 'Save G-code…', icon: 'export', onClick: () => this.saveGcode() },
@@ -172,6 +173,7 @@ export class LaserWorkspace {
       ]),
       menuBtn('Create', 'plus', () => [
         { label: 'Depth map from STL or image…', onClick: () => depthMapStudio(this) },
+        { label: 'Box maker (finger joints)…', onClick: () => boxMakerDialog(this) },
         { label: 'QR code…', onClick: () => tools.qrDialog(this) },
         { label: 'Material test…', onClick: () => tools.materialTestDialog(this) },
         { label: 'Interval test…', onClick: () => tools.intervalTestDialog(this) },
@@ -191,7 +193,7 @@ export class LaserWorkspace {
       toolBtn('polygon', 'lpolygon', 'Polygon'), toolBtn('text', 'ltext', 'Text (Ctrl+T)'),
       toolBtn('measure', 'ruler', 'Measure (Alt+M)'), toolBtn('position', 'target', 'Click to move the laser head to a spot'));
 
-    this.canvas = h('canvas', { class: 'laser-canvas' });
+    this.canvas = h('canvas', { class: 'laser-canvas', 'aria-label': 'Laser bed drawing area' });
     this.ctx = this.canvas.getContext('2d');
     this.coords = h('div', { class: 'laser-coords' });
     this.wrap = h('div', { class: 'laser-canvas-wrap' }, this.canvas, this.coords);
@@ -1019,6 +1021,7 @@ export class LaserWorkspace {
     mode.addEventListener('change', () => { L.mode = mode.value; this.commit(); });
     ed.append(h('div', { class: 'le-title' }, h('span', { class: 'll-chip', style: { background: LAYER_COLORS[li] } }, LAYER_NAMES[li]), `Layer ${LAYER_NAMES[li]} settings`));
     if (isToolLayer(li)) { ed.append(h('div', { class: 'insp-note' }, 'Guide layers are for layout help and are never sent to the laser.')); return; }
+    ed.append(this._materialRow(L));
     ed.append(h('label', { class: 'le-row' }, h('span', {}, 'Mode'), mode),
       num('Speed', () => (perMin ? Math.round(L.speed * 60) : L.speed), (v) => { L.speed = Math.max(0.1, perMin ? v / 60 : v); }, perMin ? 10 : 1, 0.1, 1e6, perMin ? 'mm/min' : 'mm/s'),
       num('Max power', () => L.powerMax, (v) => { L.powerMax = v; }, 0.5, 0, 100, '%'),
@@ -1042,6 +1045,36 @@ export class LaserWorkspace {
         num('Brightness', () => L.image.brightness, (v) => { L.image.brightness = v; }, 1, -100, 100), num('Contrast', () => L.image.contrast, (v) => { L.image.contrast = v; }, 1, -100, 100),
         num('Gamma', () => L.image.gamma, (v) => { L.image.gamma = v; }, 0.05, 0.1, 5), check('Negative image', 'negative', L.image));
     }
+  }
+
+  // Material library: your own saved speed / power settings, kept with the app's settings.
+  _materialRow(L) {
+    const KEYS = ['mode', 'speed', 'powerMax', 'powerMin', 'passes', 'interval', 'angle', 'crosshatch', 'kerf', 'air'];
+    const list = () => (Array.isArray(this.app.settings.laserMaterials) ? this.app.settings.laserMaterials : []);
+    const store = (next) => this.app.patchSettings({ laserMaterials: next });
+    const sel = h('select', { class: 'select', title: 'Apply settings you saved for a material' }, h('option', { value: '' }, list().length ? 'Apply saved material…' : 'No saved materials yet'),
+      ...list().map((mat, i) => h('option', { value: i }, mat.name)));
+    sel.addEventListener('change', () => {
+      const mat = list()[+sel.value];
+      if (sel.value === '' || !mat) return;
+      for (const k of KEYS) if (mat[k] !== undefined) L[k] = mat[k];
+      this.commit();
+      toast(`Applied "${mat.name}"`);
+    });
+    const save = button({ label: 'Save', cls: 'btn-outline', title: 'Save this layer\'s settings as a material', onClick: async () => {
+      const name = await promptDialog('Save material', 'Name (for example: 3 mm birch ply, cut)', '');
+      if (!name || !name.trim()) return;
+      const mat = { name: name.trim() };
+      for (const k of KEYS) mat[k] = L[k];
+      store([...list().filter((x) => x.name !== mat.name), mat].sort((a, b) => a.name.localeCompare(b.name)));
+      this.commit();
+      toast(`Saved "${mat.name}" to your material library`);
+    } });
+    const del = button({ label: 'Remove', cls: 'btn-ghost', title: 'Remove a saved material', onClick: (e) => {
+      if (!list().length) { toast('There are no saved materials'); return; }
+      popupMenu(list().map((mat) => ({ label: 'Remove "' + mat.name + '"', onClick: () => { store(list().filter((x) => x.name !== mat.name)); this.commit(); } })), e.currentTarget);
+    } });
+    return h('div', { class: 'le-row le-material' }, h('span', {}, 'Material'), sel, save, del);
   }
 
   // ---------------------------------------------------------------- job / machine

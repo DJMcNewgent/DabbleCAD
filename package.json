@@ -1,7 +1,7 @@
 {
   "name": "dabblecad",
   "productName": "DabbleCAD",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "One offline, open-source app for 3D design, laser projects, and depth maps. Tinkercad-style modeling; runs locally, no account needed.",
   "main": "electron/main.js",
   "author": "DJMcNewgent",
@@ -27,6 +27,7 @@
     "clipper-lib": "^6.4.2",
     "electron": "^45.3.2",
     "electron-builder": "26.18.0",
+    "manifold-3d": "^3.5.5",
     "opentype.js": "^2.0.0",
     "qrcode-generator": "^2.0.4",
     "three": "^0.187.0",

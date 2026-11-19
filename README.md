@@ -72,6 +72,11 @@ download the app or a new version, visit external links, and initially install
 development dependencies or any device drivers your computer needs. There is no
 automatic updater or cloud sync.
 
+The one thing the app does online by itself: when it starts, it asks GitHub whether a
+newer release exists and shows a note if so. The request carries nothing about you or
+your designs, fails silently when you are offline, and can be switched off under
+**Settings → Updates**.
+
 ## Download and install
 
 Published builds are attached to [GitHub Releases](https://github.com/DJMcNewgent/DabbleCAD/releases),
@@ -143,10 +148,22 @@ storage instead and are separate from the desktop library.
 
 - 60+ parametric shapes, text, letters, numbers, starter models, and saved creations.
 - Solid, hole, transparent, and multicolor objects.
-- Union, intersection, bundles, and ungrouping.
+- Union, intersection, bundles, and ungrouping. Groups are built by a solid-modelling
+  kernel, so the result is a closed, printable mesh.
+- Edit the parts of a group without ungrouping: double-click it, change things, press Done.
+- Round or bevel the outside edges of any shape or group.
 - Resize, rotate, lift, mirror, align, and type exact dimensions.
 - Workplanes on faces, a ruler, notes, patterns, duplicate-and-repeat, and Cruise.
 - Freehand Scribble shapes with extrusion.
+- **Sketch:** draw rectangles, circles, and polygons with typed sizes and cut-outs,
+  then pull the outline up into 3D. Double-click the result to edit the sketch.
+- **Generators** in real millimetres: bolts and nuts with printable threads,
+  standoffs, a two-leaf hinge, snap clips, and a box with a fitted lid.
+- **Print check:** before exporting, find shapes that are not closed solids, parts
+  floating above the plate, thin walls, steep overhangs, and designs too big for
+  your printer bed, with a one-click fix for resting the design on the plate.
+- **Open in slicer:** send the design straight to your slicer from the Export dialog.
+- A getting-started guide on first launch (reopen it from the **?** button).
 - Blocks and Bricks views.
 - Size, volume, and weight estimates.
 
@@ -167,6 +184,10 @@ same design as your 3D work.
   flip, and rotate.
 - Image engraving with threshold, dithering, and grayscale options.
 - QR codes, material tests, interval tests, and outlines from the 3D workspace.
+- **Box maker:** finger-jointed panels for a laser-cut box from its width, depth,
+  height, material thickness, and kerf.
+- **Material library:** save a layer's speed, power, and passes under a name of
+  your own and apply it to other layers and projects.
 - Preview, estimated job time, G-code export, and USB serial controls for
   GRBL-compatible machines.
 - SVG, DXF, and image import; SVG, DXF, and G-code export.
@@ -180,7 +201,9 @@ leave an operating laser unattended.
 
 Create a height map from an STL, an image, or the current 3D design. Adjust levels,
 gamma, output range, smoothing, and inversion; inspect a 3D relief preview; get
-slice/spot-size guidance; and export 16-bit PNG, 8-bit PNG, or slice masks.
+slice/spot-size guidance; and export 16-bit PNG, 8-bit PNG, or slice masks. A depth
+map can go onto the bed as one grayscale engraving, or as **slice passes**: one mask
+per pass, each on its own layer, so the laser cuts the relief step by step.
 Suggested material settings are starting points, not calibrated guarantees.
 
 ## Saving
@@ -235,9 +258,12 @@ checksums, unsigned builds, and the public-release checklist.
 
 DabbleCAD is an early project, not a claim of production certification.
 
-- Text bevels may be reduced or omitted if the requested inset leaves unmatched
-  edges or creates degenerate triangles. Inspect exports in a slicer, especially
-  with unusual fonts or overlapping glyphs.
+- Rounding or bevelling edges keeps the overall size but makes holes and gaps
+  slightly tighter, and very detailed shapes are refused because they take too long.
+- The print check is a quick geometric estimate, not a slicer. Imported meshes that
+  are not closed solids fall back to a simpler grouping method.
+- Generator threads use a rounded printable profile, not a machined ISO thread. Print
+  a bolt and nut pair and adjust the clearance before relying on a fit.
 - Complex imported geometry and advanced SVG/DXF/3MF features need inspection.
 - Estimates and suggested laser settings are not material-specific calibration.
 - Real laser hardware, native close dialogs, installation, and operating-system
@@ -255,7 +281,7 @@ Created by [DJMcNewgent](https://github.com/DJMcNewgent).
 Licensed under the [Apache License 2.0](LICENSE); see [NOTICE](NOTICE).
 Version 1.0.0 was released under the MIT License.
 
-Built with Electron, Three.js, three-mesh-bvh, three-bvh-csg, OpenType.js,
+Built with Electron, Three.js, Manifold, three-mesh-bvh, three-bvh-csg, OpenType.js,
 Clipper, QR Code Generator, and Roboto. See
 [third-party notices](THIRD_PARTY_NOTICES.md) for component licenses.
 

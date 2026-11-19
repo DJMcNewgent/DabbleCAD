@@ -1,5 +1,6 @@
 // Application shell: layout, toolbars, keyboard shortcuts, auto-save and file handling.
 import * as THREE from 'three';
+import { initSolid } from './core/solid.js';
 import { h, clear, button, icon, toast, popupMenu, promptDialog, confirmDialog } from './ui/dom.js';
 import { platform } from './platform.js';
 import { Viewport, HOME_VIEW } from './view/viewport.js';
@@ -11,7 +12,8 @@ import { Inspector } from './ui/inspector.js';
 import { ShapesPanel } from './ui/shapespanel.js';
 import { Dashboard } from './ui/dashboard.js';
 import { scribbleDialog } from './ui/scribble.js';
-import { settingsDialog, gridDialog, exportDialog, shortcutsDialog, statsDialog, patternDialog, noteDialog, aboutDialog, saveChangesDialog } from './ui/dialogs.js';
+import { sketchDialog } from './ui/sketch.js';
+import { settingsDialog, gridDialog, exportDialog, shortcutsDialog, welcomeDialog, statsDialog, patternDialog, noteDialog, aboutDialog, saveChangesDialog } from './ui/dialogs.js';
 import { newDoc, serializeDoc, deserializeDoc, uid, walk, countShapes } from './core/doc.js';
 import { initFonts, ensureFont } from './core/fonts.js';
 import { kindName } from './core/shapes.js';
@@ -27,6 +29,7 @@ export class App {
     this.settings = await platform.getSettings();
     document.documentElement.dataset.theme = this.settings.theme === 'light' ? 'light' : 'dark';
     await initFonts();
+    await initSolid();
     this.designId = null;
     this.dirty = false;
     this.saveTimer = null;
@@ -36,6 +39,8 @@ export class App {
     await this._openInitial();
     const boot = document.getElementById('boot');
     if (boot) boot.remove();
+    setTimeout(() => this._checkForUpdate(), 4000);
+    if (this.settings.welcomeSeen !== true && !this.settings.smoke) welcomeDialog(this);
     if (this.settings.gpuAutoDisabled) toast('GPU acceleration was turned off after a graphics crash. You can re-enable it in Settings.', 'warn', 7000);
   }
 
@@ -72,21 +77,21 @@ export class App {
     this.themeBtn = button({ icon: 'sun', title: 'Switch between dark and light mode', onClick: () => this.setTheme(this.settings.theme === 'light' ? 'dark' : 'light') });
     const logo = h('button', { class: 'logo', type: 'button', title: 'Your designs' }, this.logoMark(), h('span', { class: 'logo-name' }, 'DabbleCAD'));
     logo.addEventListener('click', () => this.dashboard.show());
-    const topbar = h('div', { class: 'topbar' }, logo, h('span', { class: 'sep' }), this.nameInput, this.saveState, h('span', { class: 'spacer' }),
+    const topbar = h('div', { class: 'topbar', role: 'toolbar', 'aria-label': 'Design and file tools' }, logo, h('span', { class: 'sep' }), this.nameInput, this.saveState, h('span', { class: 'spacer' }),
       this.modeSeg, h('span', { class: 'sep' }),
       button({ label: 'Import', icon: 'import', title: 'Import STL, OBJ, GLB, 3MF, SVG, images (Ctrl+O opens a design file)', onClick: () => this.importDialog() }),
       button({ label: 'Export', icon: 'export', title: 'Download for 3D printing or sharing (Ctrl+E)', onClick: () => exportDialog(this) }),
       h('span', { class: 'sep' }), this.themeBtn,
-      button({ icon: 'help', title: 'Keyboard shortcuts (?)', onClick: () => shortcutsDialog() }),
+      button({ icon: 'help', title: 'Help: shortcuts and getting started (?)', onClick: () => shortcutsDialog(this) }),
       button({ icon: 'info', title: 'About DabbleCAD', onClick: () => aboutDialog(this) }),
       button({ icon: 'settings', title: 'Settings', onClick: () => settingsDialog(this) }));
 
     // top-level workspaces sit directly beneath the DabbleCAD brand
     this.wsTabs = {};
     const wsTab = (id, label, ic, tip) => { const b = button({ label, icon: ic, title: tip, size: 17, cls: 'ws-tab', onClick: () => this.setViewMode(id === 'laser' ? 'laser' : this.last3d || 'design') }); b.dataset.mode = id === 'laser' ? 'laser' : 'workspace-3d'; this.wsTabs[id] = b; return b; };
-    const workspaceBar = h('div', { class: 'workspace-bar' }, wsTab('3d', '3D Design', 'cube', '3D design workspace'), wsTab('laser', 'Laser', 'laser', 'Laser workspace: draw, set up cuts and engraves, and run your laser'));
+    const workspaceBar = h('div', { class: 'workspace-bar', role: 'tablist', 'aria-label': 'Workspace' }, wsTab('3d', '3D Design', 'cube', '3D design workspace'), wsTab('laser', 'Laser', 'laser', 'Laser workspace: draw, set up cuts and engraves, and run your laser'));
     this.wsTabs['3d'].classList.add('active');
-    const toolbar = h('div', { class: 'toolbar' },
+    const toolbar = h('div', { class: 'toolbar', role: 'toolbar', 'aria-label': 'Editing tools' },
       tb('outliner', 'list', 'Objects list', () => this.toggleOutliner()), h('span', { class: 'sep' }),
       tb('copy', 'copy', 'Copy (Ctrl+C)', () => this.editor.copy()),
       tb('paste', 'paste', 'Paste (Ctrl+V)', () => this.editor.paste()),
@@ -167,6 +172,7 @@ export class App {
     ed.on('transform', () => this._updateStatus());
     ed.on('history', () => this._updateButtons());
     ed.on('tool', () => { this._updateButtons(); this._updateBanner(); });
+    ed.on('editing', () => { this._updateBanner(); this._updateButtons(); });
     ed.on('busy', (on) => this.viewEl.classList.toggle('busy', on));
     ed.on('contextmenu', (e) => this._contextMenu(e));
     ed.on('note-new', async (pos) => { const text = await noteDialog('', true); if (text) ed.addNote(pos, text); });
@@ -176,7 +182,9 @@ export class App {
     });
     ed.on('dblclick', (node) => {
       if (node.type === 'shape' && node.kind === 'text') { this.inspector.open.params = true; this.inspector.render(); this.inspector.focusText(); }
+      else if (node.type === 'shape' && node.kind === 'extrusion' && node.params.sketch) this.openSketch(node);
       else if (node.type === 'shape' && node.kind === 'extrusion' && node.params.image) this.openScribble(node);
+      else if (node.type === 'group' && !ed.editing) ed.enterGroup(node);
     });
     document.addEventListener('keydown', (e) => this._key(e));
     window.addEventListener('dragover', (e) => e.preventDefault());
@@ -400,9 +408,9 @@ export class App {
     for (const msg of res.messages) toast(msg, 'warn', 6000);
   }
 
-  async exportAs(format, selectedOnly) {
+  async exportAs(format, selectedOnly, { fuse = true } = {}) {
     try {
-      const out = await this.editor._busy(() => exportModel(this.editor, format, { selectedOnly }));
+      const out = await this.editor._busy(() => exportModel(this.editor, format, { selectedOnly, fuse }));
       const path = await platform.saveDialog({
         title: 'Export ' + out.extension.toUpperCase(), defaultName: `${this._fileBase()}.${out.extension}`,
         filters: [{ name: out.filterName, extensions: [out.extension] }], data: out.data,
@@ -411,6 +419,27 @@ export class App {
     } catch (err) {
       toast(err.message || String(err), 'warn', 5000);
     }
+  }
+
+  /** Export to a temporary file and hand it to the user's slicer (or the default app for the file type). */
+  async openInSlicer(selectedOnly = false) {
+    try {
+      const format = this.settings.slicerFormat === 'stl' ? 'stl' : '3mf';
+      const out = await this.editor._busy(() => exportModel(this.editor, format, { selectedOnly }));
+      const res = await platform.openInSlicer({ name: `${this._fileBase()}.${out.extension}`, data: out.data });
+      if (res && res.ok) toast(res.app ? `Opened in ${res.app}` : `Opened ${out.extension.toUpperCase()} with your default app`);
+      else toast('Could not open a slicer' + (res && res.error ? ': ' + res.error : '') + '. Choose your slicer in Settings.', 'warn', 6000);
+    } catch (err) {
+      toast(err.message || String(err), 'warn', 5000);
+    }
+  }
+
+  async _checkForUpdate() {
+    if (this.settings.checkUpdates === false) return;
+    const u = await platform.checkUpdate().catch(() => null);
+    if (!u) return;
+    const link = h('a', { href: '#', onClick: (e) => { e.preventDefault(); platform.openExternal(u.url); } }, 'See what is new');
+    toast(h('span', {}, `DabbleCAD ${u.latest} is available (you have ${u.current}). `, link), 'info', 15000);
   }
 
   async exportScreenshot() {
@@ -426,6 +455,22 @@ export class App {
   _fileBase() { return (this.editor.doc.name || 'design').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'design'; }
 
   // ---------------------------------------------------------------- scribble
+  async openSketch(node) {
+    const res = await sketchDialog(node ? node.params.sketch : null);
+    if (!res) return;
+    const ed = this.editor;
+    if (node && ed.node(node.id)) {
+      node.params = { ...node.params, polys: res.polys, sketch: res.sketch, depth: res.depth, pid: uid('p') };
+      ed.sync();
+      ed.commit();
+      ed.emit('selection');
+    } else {
+      const n = extrusionNode(res.polys, 'Sketch', res.depth, { sketch: res.sketch });
+      n.color = '#3fa7a3';
+      ed.addAtViewCenter(n);
+    }
+  }
+
   async openScribble(node) {
     const res = await scribbleDialog(node ? node.params.image : null);
     if (!res) return;
@@ -609,6 +654,7 @@ export class App {
     }[ed.tool];
     clear(this.banner);
     if (text) this.banner.append(h('span', {}, text), h('kbd', {}, 'Esc'));
+    else if (ed.editing) this.banner.append(h('span', {}, 'Editing the parts of a group. Move, resize, add or delete parts, then finish.'), button({ label: 'Done', cls: 'btn-primary', onClick: () => ed.exitGroup() }));
     else if (ed.hasFrame) this.banner.append(h('span', {}, 'Temporary workplane active.'), button({ label: 'Reset workplane', cls: 'btn-outline', onClick: () => { ed.setFrame(null); this._updateBanner(); } }));
   }
 
@@ -697,14 +743,15 @@ export class App {
     if (key === 'Home') { done(); this.viewport.home(); return; }
     if (!ctrl && (key === '+' || key === '=')) { done(); this.viewport.zoomBy(0.8); return; }
     if (!ctrl && (key === '-' || key === '_')) { done(); this.viewport.zoomBy(1.25); return; }
-    if (key === '?' || key === 'F1') { done(); shortcutsDialog(); return; }
+    if (key === '?' || key === 'F1') { done(); shortcutsDialog(this); return; }
     if (voxel) { if (key === 'Escape') this.setViewMode('design'); return; }
 
     if (key === 'Escape') {
       done();
       if (ed.placing) ed.cancelPlace();
       else if (ed.tool !== 'select') ed.setTool('select');
-      else ed.clearSelection();
+      else if (ed.selection.size) ed.clearSelection();
+      else if (ed.editing) ed.exitGroup();
       return;
     }
     if (key === 'Delete' || key === 'Backspace') { done(); ed.deleteSelection(); return; }
