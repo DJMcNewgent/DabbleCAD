@@ -1,5 +1,6 @@
 // Import (STL / OBJ / GLB / 3MF / PLY / SVG / images / .dabble) and export (STL / OBJ / GLB / 3MF / SVG).
 import * as THREE from 'three';
+import { fusedExportGeometry } from './printcheck.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -209,19 +210,21 @@ function writeSTL(geos) {
   const dv = new DataView(buf);
   const header = 'DabbleCAD binary STL';
   for (let i = 0; i < header.length; i++) dv.setUint8(i, header.charCodeAt(i));
-  dv.setUint32(80, tris, true);
   let o = 84;
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
   for (const g of geos) {
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i += 3) {
       a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1); c.fromBufferAttribute(pos, i + 2);
+      // Welding or baking transforms can collapse a facet to an edge or point.
+      if (a.equals(b) || b.equals(c) || c.equals(a)) continue;
       n.subVectors(b, a).cross(c.clone().sub(a)).normalize();
       for (const v of [n, a, b, c]) { dv.setFloat32(o, v.x, true); dv.setFloat32(o + 4, v.y, true); dv.setFloat32(o + 8, v.z, true); o += 12; }
       o += 2;
     }
   }
-  return new Uint8Array(buf);
+  dv.setUint32(80, (o - 84) / 50, true);
+  return new Uint8Array(o === buf.byteLength ? buf : buf.slice(0, o));
 }
 
 function writeOBJ(nodes, geos) {
@@ -347,12 +350,16 @@ function writeSVG(geos, height = 0.01) {
 }
 
 /** Build export data. Returns { data, extension, filterName } or throws. */
-export async function exportModel(editor, format, { selectedOnly = false } = {}) {
+export async function exportModel(editor, format, { selectedOnly = false, fuse = true } = {}) {
   const nodes = exportNodes(editor, selectedOnly);
   if (!nodes.length) throw new Error(selectedOnly ? 'Select at least one solid shape to export' : 'There is nothing to export yet');
   const geos = nodes.map((n) => bakedWorldGeometry(n, true));
   switch (format) {
-    case 'stl': return { data: writeSTL(geos), extension: 'stl', filterName: 'STL mesh' };
+    case 'stl': {
+      // one watertight shell prints more reliably than overlapping ones; fall back when a part is not a closed solid
+      const fused = fuse && nodes.length > 1 ? fusedExportGeometry(nodes) : null;
+      return { data: writeSTL(fused ? [fused] : geos), extension: 'stl', filterName: 'STL mesh', fused: !!fused };
+    }
     case 'obj': return { data: writeOBJ(nodes, geos), extension: 'obj', filterName: 'Wavefront OBJ' };
     case '3mf': return { data: write3MF(nodes, geos), extension: '3mf', filterName: '3MF model' };
     case 'glb': return { data: await writeGLB(nodes, geos), extension: 'glb', filterName: 'glTF binary' };

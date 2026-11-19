@@ -1,6 +1,6 @@
 # Third-party notices
 
-DabbleCAD's own code is MIT-licensed; third-party components retain their own
+DabbleCAD's own code is licensed under the Apache License 2.0 (see LICENSE); third-party components retain their own
 copyrights and licenses. This notice accompanies the desktop distributions.
 Electron and Chromium also ship their own license files with the runtime.
 Build-only tools such as Vite and electron-builder are not bundled into the app.
@@ -43,6 +43,14 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Manifold (manifold-3d)
+
+Copyright The Manifold Authors. <https://github.com/elalish/manifold>
+Licensed under the Apache License, Version 2.0, the same license as DabbleCAD; the
+full text is in the LICENSE file that accompanies this notice. The WebAssembly build
+includes Clipper2, Copyright (c) Angus Johnson, under the Boost Software License 1.0
+reproduced below.
 
 ## Clipper / clipper-lib
 

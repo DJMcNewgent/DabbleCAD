@@ -135,6 +135,38 @@ vp.canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId
 check('context-menu', !!document.querySelector('.menu') && document.querySelectorAll('.menu-item').length > 10);
 document.querySelectorAll('.menu').forEach((m) => m.remove());
 ed.select([d1.id]);
+// round / bevel edges keep the size and stay closed; generators are closed solids
+{
+  const rb = add('star', 260, -200); const size0 = ed.bounds([rb]);
+  ed.select([rb.id]); ed.patchSelection({ round: 1 });
+  const rg = lib.geometry.getGeometry(ed.node(rb.id)); const ri = lib.solid.inspectSolid(rg); const size1 = ed.bounds([ed.node(rb.id)]);
+  check('round-edges', ri.closed && Math.abs((size1.max.x - size1.min.x) - (size0.max.x - size0.min.x)) < 0.05 && rg.attributes.position.count > 200, [ri, rg.attributes.position.count]);
+  ed.patchSelection({ round: 1, roundStyle: 'bevel' });
+  check('bevel-edges', lib.solid.inspectSolid(lib.geometry.getGeometry(ed.node(rb.id))).closed);
+  ed.deleteSelection();
+  for (const c of CATALOG.filter((c) => c.cat === 'generators')) {
+    const gi = lib.solid.inspectSolid(lib.geometry.getGeometry(nodeFromCatalog(c)));
+    check('generator-' + c.id, gi.closed && gi.volume > 50, gi);
+  }
+}
+// bevelled text must stay a closed, printable solid
+{
+  const tn = nodeFromCatalog(CATALOG.find((c) => c.id === 'text')); tn.params = { ...tn.params, text: 'Wiggly & 8', bevel: 0.8, segments: 3 };
+  const info = lib.solid.inspectSolid(lib.geometry.getGeometry(tn));
+  check('bevel-text-closed', info.closed === true && info.parts === 9, info);
+}
+// edit the parts of a group without ungrouping
+{
+  const p1 = add('box', -200, 200), p2 = add('cylinder', -190, 200);
+  ed.select([p1.id, p2.id]); await ed.group('union');
+  const grp = ed.selectedNodes()[0]; grp.name = 'Bracket'; const before = ed.doc.nodes.length;
+  check('enter-group', ed.enterGroup(grp) === true && ed.doc.nodes.length === before + 1 && !!ed.editing);
+  const extra = add('sphere', -180, 200);
+  await ed.exitGroup();
+  const again = ed.selectedNodes()[0];
+  check('exit-group', !ed.editing && ed.doc.nodes.length === before && again && again.type === 'group' && again.children.length === 3 && again.name === 'Bracket', again && [again.type, again.children && again.children.length, again.name]);
+  ed.deleteSelection();
+}
 // regression: flush, overlapping holes used to explode the mesh and crash the window
 {
   const bb = add('box', 200, 200); ed.select([bb.id]); ed.setSize('x', 80); ed.setSize('y', 60);
@@ -175,6 +207,7 @@ for (const label of ['IOB', 'g']) {
   }
   const openEdges = [...edges.values()].filter(([forward, reverse]) => forward !== 1 || reverse !== 1).length;
   check('beveled-text-stl-is-closed-' + label, triangles > 0 && openEdges === 0 && degenerate === 0, { openEdges, degenerate });
+  check('beveled-text-stl-size-' + label, data.byteLength === 84 + triangles * 50);
   check('beveled-text-keeps-a-bevel-' + label, layers.size > 2, layers.size);
   ed.deleteSelection();
 }

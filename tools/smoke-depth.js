@@ -68,5 +68,21 @@ check('added-image', ws.doc.shapes.length === before + 1 && im.type === 'image' 
 const plan = ws.plan(); const powers = new Set(plan.moves.filter((mv) => mv.s > 0).map((mv) => mv.s.toFixed(2)));
 check('grayscale-gcode', powers.size > 8 && plan.bounds && near(plan.bounds.w, 60, 1.5), [powers.size, plan.bounds && plan.bounds.w]);
 ws.zoomToBed(); ws._draw(); await shot('dm-on-bed');
+// slice passes: one mask per pass, each on its own layer, engraved in layer order
+{
+  const st = D.depthMapStudio(ws); await wait(200);
+  st.useDesign(); await wait(300);
+  st.options.slices = 5;
+  const before = ws.doc.shapes.length;
+  await st.addSlices(); await wait(300);
+  const grp = ws.doc.shapes[ws.doc.shapes.length - 1];
+  const layers = grp && grp.children ? grp.children.map((c) => c.layer) : [];
+  check('slice-passes', ws.doc.shapes.length === before + 1 && layers.length === 4 && new Set(layers).size === 4, layers);
+  const plan = lib.laser.gcode.planJob(ws.doc, ws.machine, ws.getImage);
+  const g = lib.laser.gcode.toGcode(plan, ws.doc, ws.machine);
+  out.sliceGcodeLines = g.split('\n').length;
+  check('slice-gcode', out.sliceGcodeLines > 500 && layers.every((li) => g.includes('Layer ' + String(li + 1).padStart(2, '0')) || g.includes('layer ' + (li + 1))), out.sliceGcodeLines);
+  await shot('dm-slice-job');
+}
 out.fails = fails;
 return out;

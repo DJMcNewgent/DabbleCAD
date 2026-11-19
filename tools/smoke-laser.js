@@ -126,5 +126,38 @@ document.querySelector('.modal-head .btn').click();
 document.querySelector('.btn[data-mode="design"]').click(); await wait(300);
 check('back-to-3d', !document.getElementById('app').classList.contains('laser-mode') && app.viewport.width > 300, app.viewport.width);
 document.querySelector('.btn[data-mode="laser"]').click(); await wait(200);
+// box maker: panel count, sizes and joints that mate
+{
+  const B = L.boxmaker;
+  const area = (polys) => polys.reduce((sum, p) => { let a = 0; for (let i = 0, j = p.pts.length - 1; i < p.pts.length; j = i++) a += p.pts[j][0] * p.pts[i][1] - p.pts[i][0] * p.pts[j][1]; return sum + Math.abs(a) / 2; }, 0);
+  const open = B.boxPanels({ width: 100, depth: 60, height: 40, thickness: 3, finger: 10, kerf: 0, lid: false });
+  const closed = B.boxPanels({ width: 100, depth: 60, height: 40, thickness: 3, finger: 10, kerf: 0, lid: true });
+  check('box-panel-count', open.length === 5 && closed.length === 6, [open.length, closed.length]);
+  const bb = (p) => { const xs = p.polys.flatMap((q) => q.pts.map((v) => v[0])), ys = p.polys.flatMap((q) => q.pts.map((v) => v[1])); return [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)]; };
+  check('box-panel-size', near(bb(open[0])[0], 100, 0.05) && near(bb(open[0])[1], 60, 0.05) && near(bb(open[1])[1], 40, 0.05), [bb(open[0]), bb(open[1])]);
+  // The material of a closed box is its outer volume minus the inner cavity. Each panel is
+  // thickness-deep, so mating joints (no gaps, no overlaps) make the panel areas add up exactly.
+  const shell = 100 * 60 * 40 - 94 * 54 * 34;
+  out.boxShell = [+(closed.reduce((s, p) => s + area(p.polys), 0) * 3).toFixed(1), shell];
+  check('box-joints-mate', near(out.boxShell[0], shell, 2), out.boxShell);
+  const fat = B.boxPanels({ width: 100, depth: 60, height: 40, thickness: 3, finger: 10, kerf: 0.2, lid: false });
+  check('box-kerf-grows', area(fat[0].polys) > area(open[0].polys) + 10);
+  const n0 = ws.doc.shapes.length;
+  const bm = B.boxMakerDialog(ws); await wait(150);
+  [...bm.el.querySelectorAll('button')].find((b) => b.textContent.includes('Create panels')).click(); await wait(200);
+  check('box-added', ws.doc.shapes.length === n0 + 5, ws.doc.shapes.length - n0);
+  await shot('l-box');
+}
+// material library: save a layer's settings and apply them to another layer
+{
+  const from = L.model.layerOf(ws.doc, 3), to = L.model.layerOf(ws.doc, 4);
+  Object.assign(from, { mode: 'fill', speed: 123, powerMax: 45, passes: 3 });
+  app.patchSettings({ laserMaterials: [{ name: 'Test ply', mode: from.mode, speed: from.speed, powerMax: from.powerMax, powerMin: 0, passes: from.passes, interval: 0.1 }] });
+  const row = ws._materialRow(to); const sel = row.querySelector('select');
+  check('material-listed', sel.options.length === 2 && sel.options[1].textContent === 'Test ply', sel.options.length);
+  sel.value = '0'; sel.dispatchEvent(new Event('change'));
+  check('material-applied', to.speed === 123 && to.powerMax === 45 && to.passes === 3 && to.mode === 'fill', [to.speed, to.powerMax, to.passes, to.mode]);
+  app.patchSettings({ laserMaterials: [] });
+}
 out.fails = fails;
 return out;

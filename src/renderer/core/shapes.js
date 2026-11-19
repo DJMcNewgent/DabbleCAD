@@ -1,8 +1,9 @@
 // Shape library: parametric builders (Z-up, nominal 20 mm) and the shape-panel catalog.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { textShapes } from './fonts.js';
+import { bevelExtrude } from './solid.js';
+import { GENERATOR_KINDS, GENERATOR_CATALOG } from './generators.js';
 import { makeShape, makeGroup, uid, cloneNode } from './doc.js';
 
 const TAU = Math.PI * 2;
@@ -65,32 +66,6 @@ export function extrude(shapes, depth, { bevel = 0, bevelSegments = 2, curveSegm
     depth: b > 0 ? depth - 2 * b : depth, steps: 1, curveSegments,
     bevelEnabled: b > 0, bevelThickness: b, bevelSize: b, bevelOffset: -b, bevelSegments: Math.max(1, Math.round(bevelSegments)),
   });
-}
-
-function hasClosedTextMesh(geometry) {
-  // Use the same position-only weld as the primitive mesh pipeline before export.
-  const positionsOnly = new THREE.BufferGeometry();
-  positionsOnly.setAttribute('position', geometry.attributes.position);
-  const welded = mergeVertices(positionsOnly);
-  const indices = welded.index.array, positions = welded.attributes.position;
-  const triangle = new THREE.Triangle(), edges = new Map();
-  const addEdge = (a, b) => {
-    const forward = a < b;
-    const key = forward ? a + ':' + b : b + ':' + a;
-    const direction = forward ? 1 : -1;
-    const first = edges.get(key);
-    if (first !== undefined && first !== -direction) return false;
-    edges.set(key, first === undefined ? direction : 0);
-    return true;
-  };
-  if (indices.length === 0) return false;
-  for (let i = 0; i < indices.length; i += 3) {
-    const a = indices[i], b = indices[i + 1], c = indices[i + 2];
-    const area = triangle.setFromAttributeAndIndices(positions, a, b, c).getArea();
-    if (!(area > 0) || !addEdge(a, b) || !addEdge(b, c) || !addEdge(c, a)) return false;
-  }
-  for (const direction of edges.values()) if (direction !== 0) return false;
-  return true;
 }
 
 // Extrude a profile drawn in the X-Z plane along Y (centred), e.g. roofs and wedges.
@@ -482,17 +457,13 @@ export const KINDS = {
     build: (p) => {
       const shapes = textShapes(p.text && p.text.length ? p.text : ' ', p.font, 14, p.align);
       if (!shapes.length) return new THREE.BoxGeometry(6, 14, 6);
-      // Deep insets can collapse narrow strokes or the gap between counters.
-      const depth = 6;
-      for (let bevel = clamp(p.bevel, 0, depth / 2 - 0.01); bevel > 0;) {
-        const geometry = extrude(shapes, depth, { bevel, bevelSegments: p.segments, curveSegments: 6 });
-        if (hasClosedTextMesh(geometry)) return geometry;
-        geometry.dispose();
-        const next = Math.max(0.01, bevel / 2);
-        if (next >= bevel) break;
-        bevel = next;
+      if (p.bevel > 0) {
+        // three's bevel self-intersects on thin strokes; the solid kernel keeps it printable
+        const polys = shapes.map((s) => { const pts = s.extractPoints(6); return { outer: pts.shape.map((v) => [v.x, v.y]), holes: pts.holes.map((hh) => hh.map((v) => [v.x, v.y])) }; });
+        const solid = bevelExtrude(polys, 6, p.bevel, p.segments);
+        if (solid) return solid;
       }
-      return extrude(shapes, depth, { curveSegments: 6 });
+      return extrude(shapes, 6, { bevel: p.bevel, bevelSegments: p.segments, curveSegments: 6 });
     },
   },
   extrusion: {
@@ -514,6 +485,8 @@ export const KINDS = {
     },
   },
 };
+
+Object.assign(KINDS, GENERATOR_KINDS);
 
 export function defaultParams(kind) {
   const out = {};
@@ -618,6 +591,7 @@ export const CATEGORIES = [
   { id: 'more', name: 'More Shapes' },
   { id: 'flat', name: 'Symbols & Flat Shapes' },
   { id: 'structural', name: 'Structural & Hardware' },
+  { id: 'generators', name: 'Generators (real sizes)' },
   { id: 'text', name: 'Text & Numbers' },
   { id: 'starters', name: 'Design Starters' },
   { id: 'mine', name: 'Your Creations' },
@@ -631,6 +605,7 @@ export const CATALOG = [
   C('cylinder-hole', 'cylinder', 'Cylinder Hole', 'basic', '#b0bec5', {}, { hole: true }),
   C('sphere', 'sphere', 'Sphere', 'basic', '#f2b134'),
   C('scribble', 'extrusion', 'Scribble', 'basic', '#7c8cf8', { polys: [{ outer: squigglePts(), holes: [] }], depth: 8, pid: 'squiggle' }, { special: 'scribble' }),
+  C('sketch', 'extrusion', 'Sketch', 'basic', '#3fa7a3', { polys: [{ outer: [[-10, -8], [10, -8], [10, 0], [2, 0], [2, 8], [-10, 8]], holes: [[[-6, -4], [-6, 0], [-2, 0], [-2, -4]]] }], depth: 6, pid: 'sketch-tile' }, { special: 'sketch' }),
   C('roof', 'roof', 'Roof', 'basic', '#7a6fd6'),
   C('cone', 'cone', 'Cone', 'basic', '#4c9f70'),
   C('roundroof', 'roundroof', 'Round Roof', 'basic', '#d9658f'),
@@ -688,6 +663,8 @@ export const CATALOG = [
   C('tbeam', 'profile', 'T Beam', 'structural', '#546e7a', { shape: 'T' }),
   C('ibeam', 'profile', 'I Beam', 'structural', '#546e7a', { shape: 'I' }),
   C('zbeam', 'profile', 'Z Profile', 'structural', '#546e7a', { shape: 'Z' }),
+
+  ...GENERATOR_CATALOG.map(([kind, name, color]) => C('gen-' + kind, kind, name, 'generators', color)),
 
   ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('').map((ch) =>
     C('char-' + ch, 'text', ch, 'text', /\d/.test(ch) ? '#1e88e5' : '#e53935', { text: ch })),
