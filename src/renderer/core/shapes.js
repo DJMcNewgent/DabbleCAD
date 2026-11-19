@@ -605,6 +605,7 @@ export const CATALOG = [
   C('cylinder-hole', 'cylinder', 'Cylinder Hole', 'basic', '#b0bec5', {}, { hole: true }),
   C('sphere', 'sphere', 'Sphere', 'basic', '#f2b134'),
   C('scribble', 'extrusion', 'Scribble', 'basic', '#7c8cf8', { polys: [{ outer: squigglePts(), holes: [] }], depth: 8, pid: 'squiggle' }, { special: 'scribble' }),
+  C('sketch', 'extrusion', 'Sketch', 'basic', '#3fa7a3', { polys: [{ outer: [[-10, -8], [10, -8], [10, 0], [2, 0], [2, 8], [-10, 8]], holes: [[[-6, -4], [-6, 0], [-2, 0], [-2, -4]]] }], depth: 6, pid: 'sketch-tile' }, { special: 'sketch' }),
   C('roof', 'roof', 'Roof', 'basic', '#7a6fd6'),
   C('cone', 'cone', 'Cone', 'basic', '#4c9f70'),
   C('roundroof', 'roundroof', 'Round Roof', 'basic', '#d9658f'),

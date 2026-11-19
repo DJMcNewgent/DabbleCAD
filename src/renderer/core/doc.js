@@ -48,7 +48,7 @@ const round5 = (v) => Math.round(v * 1e5) / 1e5;
 function paramKey(params) {
   return JSON.stringify(params, (key, value) => {
     if (key === 'mesh') return value && value.id;
-    if (key === 'polys' || key === 'image' || key === 'strokes') return undefined;
+    if (key === 'polys' || key === 'image' || key === 'strokes' || key === 'sketch') return undefined;
     return value;
   });
 }

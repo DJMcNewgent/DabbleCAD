@@ -187,3 +187,40 @@ export function bevelExtrude(polys, depth, bevel, segments = 2) {
     return null;
   } finally { free([...new Set(made)]); }
 }
+
+const signedArea = (pts) => { let a = 0; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1]; return a / 2; };
+const pointInPoly = (pt, poly) => {
+  let hit = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[1] > pt[1]) !== (b[1] > pt[1]) && pt[0] < ((b[0] - a[0]) * (pt[1] - a[1])) / (b[1] - a[1]) + a[0]) hit = !hit;
+  }
+  return hit;
+};
+
+/**
+ * 2D boolean: the union of `adds` minus the union of `cuts` (each a list of [x, y] points).
+ * Returns [{ outer, holes }] or null when the kernel is unavailable.
+ */
+export function regionPolys(adds, cuts = []) {
+  if (!api) return null;
+  const made = [];
+  const keep = (x) => { made.push(x); return x; };
+  try {
+    const { CrossSection } = api;
+    const one = (pts) => keep(new CrossSection([pts], 'NonZero'));
+    const fix = (pts) => (signedArea(pts) < 0 ? [...pts].reverse() : pts);
+    let region = keep(CrossSection.union(adds.map((p) => one(fix(p)))));
+    if (cuts.length) region = keep(region.subtract(keep(CrossSection.union(cuts.map((p) => one(fix(p)))))));
+    const loops = region.toPolygons().map((loop) => loop.map((p) => [p[0], p[1]]));
+    const outers = loops.filter((l) => signedArea(l) > 0).map((outer) => ({ outer, holes: [] }));
+    for (const hole of loops.filter((l) => signedArea(l) < 0)) {
+      const owner = outers.find((o) => pointInPoly(hole[0], o.outer));
+      if (owner) owner.holes.push(hole);
+    }
+    return outers;
+  } catch (err) {
+    console.warn('Region boolean failed', err);
+    return null;
+  } finally { free([...new Set(made)]); }
+}

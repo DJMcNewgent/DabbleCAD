@@ -58,6 +58,9 @@ export class Inspector {
     if (sameKind && KINDS[first.kind]) {
       const defs = KINDS[first.kind].params;
       const rows = defs.map((def) => this._param(def, first));
+      if (first.kind === 'extrusion' && first.params.sketch && nodes.length === 1) {
+        rows.push(button({ label: 'Edit sketch', icon: 'pencil', cls: 'btn-outline', onClick: () => this.app.openSketch(first) }));
+      }
       if (first.kind === 'extrusion' && first.params.image && nodes.length === 1) {
         rows.push(button({ label: 'Edit scribble', icon: 'pencil', cls: 'btn-outline', onClick: () => this.app.openScribble(first) }));
       }
