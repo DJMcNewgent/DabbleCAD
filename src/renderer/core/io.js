@@ -210,19 +210,21 @@ function writeSTL(geos) {
   const dv = new DataView(buf);
   const header = 'DabbleCAD binary STL';
   for (let i = 0; i < header.length; i++) dv.setUint8(i, header.charCodeAt(i));
-  dv.setUint32(80, tris, true);
   let o = 84;
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
   for (const g of geos) {
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i += 3) {
       a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1); c.fromBufferAttribute(pos, i + 2);
+      // Welding or baking transforms can collapse a facet to an edge or point.
+      if (a.equals(b) || b.equals(c) || c.equals(a)) continue;
       n.subVectors(b, a).cross(c.clone().sub(a)).normalize();
       for (const v of [n, a, b, c]) { dv.setFloat32(o, v.x, true); dv.setFloat32(o + 4, v.y, true); dv.setFloat32(o + 8, v.z, true); o += 12; }
       o += 2;
     }
   }
-  return new Uint8Array(buf);
+  dv.setUint32(80, (o - 84) / 50, true);
+  return new Uint8Array(o === buf.byteLength ? buf : buf.slice(0, o));
 }
 
 function writeOBJ(nodes, geos) {
