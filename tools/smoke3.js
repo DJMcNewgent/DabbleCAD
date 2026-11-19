@@ -135,6 +135,12 @@ vp.canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId
 check('context-menu', !!document.querySelector('.menu') && document.querySelectorAll('.menu-item').length > 10);
 document.querySelectorAll('.menu').forEach((m) => m.remove());
 ed.select([d1.id]);
+// bevelled text must stay a closed, printable solid
+{
+  const tn = nodeFromCatalog(CATALOG.find((c) => c.id === 'text')); tn.params = { ...tn.params, text: 'Wiggly & 8', bevel: 0.8, segments: 3 };
+  const info = lib.solid.inspectSolid(lib.geometry.getGeometry(tn));
+  check('bevel-text-closed', info.closed === true && info.parts === 9, info);
+}
 // edit the parts of a group without ungrouping
 {
   const p1 = add('box', -200, 200), p2 = add('cylinder', -190, 200);
