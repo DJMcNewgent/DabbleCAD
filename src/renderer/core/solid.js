@@ -140,3 +140,49 @@ export function withSolid(geo, fn) {
     return null;
   } finally { s.delete(); free(extra); }
 }
+
+/** Kernel handle for modules that build solids directly (null until initSolid() succeeds). */
+export const kernel = () => api;
+
+/** Finish a solid built with the kernel: returns its geometry and frees it. */
+export function finishSolid(solid, extra = []) {
+  try { return solid.status() === 'NoError' && !solid.isEmpty() ? fromSolid(solid) : null; } finally { free([solid, ...extra]); }
+}
+
+/**
+ * Extrude outlines with rounded-over top and bottom edges, as a guaranteed closed solid.
+ * polys: [{ outer: [[x, y], ...], holes: [[[x, y], ...], ...] }]. Returns a geometry or null.
+ */
+export function bevelExtrude(polys, depth, bevel, segments = 2) {
+  if (!api || !polys.length) return null;
+  const made = [];
+  const keep = (x) => { made.push(x); return x; };
+  try {
+    const { CrossSection, Manifold } = api;
+    const base = keep(CrossSection.union(polys.map((p) => keep(new CrossSection([p.outer, ...(p.holes || [])], 'EvenOdd')))));
+    const b = Math.min(bevel, depth / 2 - 0.01);
+    const slabs = [];
+    const EPS = 1e-3;
+    if (b > 0.005) {
+      const k = Math.max(2, Math.round(segments) + 2);
+      const h = b / k;
+      for (let i = 0; i < k; i++) {
+        const t = (i + 0.5) / k;
+        const inset = b * (1 - Math.sin((t * Math.PI) / 2));
+        const cs = keep(base.offset(-inset, 'Miter', 2));
+        if (cs.isEmpty()) continue;
+        // each slab reaches a hair into its inner neighbour so the stack fuses into one solid
+        slabs.push(keep(keep(Manifold.extrude(cs, h + EPS)).translate(0, 0, i * h)));
+        slabs.push(keep(keep(Manifold.extrude(cs, h + EPS)).translate(0, 0, depth - (i + 1) * h - EPS)));
+      }
+      slabs.push(keep(keep(Manifold.extrude(base, depth - 2 * b)).translate(0, 0, b)));
+    } else {
+      slabs.push(keep(Manifold.extrude(base, depth)));
+    }
+    const out = keep(slabs.length === 1 ? slabs[0] : Manifold.union(slabs));
+    return out.status() === 'NoError' && !out.isEmpty() ? fromSolid(out) : null;
+  } catch (err) {
+    console.warn('Solid bevel failed', err);
+    return null;
+  } finally { free([...new Set(made)]); }
+}

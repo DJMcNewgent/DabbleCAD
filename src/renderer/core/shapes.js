@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { textShapes } from './fonts.js';
+import { bevelExtrude } from './solid.js';
 import { makeShape, makeGroup, uid, cloneNode } from './doc.js';
 
 const TAU = Math.PI * 2;
@@ -455,6 +456,12 @@ export const KINDS = {
     build: (p) => {
       const shapes = textShapes(p.text && p.text.length ? p.text : ' ', p.font, 14, p.align);
       if (!shapes.length) return new THREE.BoxGeometry(6, 14, 6);
+      if (p.bevel > 0) {
+        // three's bevel self-intersects on thin strokes; the solid kernel keeps it printable
+        const polys = shapes.map((s) => { const pts = s.extractPoints(6); return { outer: pts.shape.map((v) => [v.x, v.y]), holes: pts.holes.map((hh) => hh.map((v) => [v.x, v.y])) }; });
+        const solid = bevelExtrude(polys, 6, p.bevel, p.segments);
+        if (solid) return solid;
+      }
       return extrude(shapes, 6, { bevel: p.bevel, bevelSegments: p.segments, curveSegments: 6 });
     },
   },
