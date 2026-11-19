@@ -135,5 +135,14 @@ vp.canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId
 check('context-menu', !!document.querySelector('.menu') && document.querySelectorAll('.menu-item').length > 10);
 document.querySelectorAll('.menu').forEach((m) => m.remove());
 ed.select([d1.id]);
+// regression: flush, overlapping holes used to explode the mesh and crash the window
+{
+  const bb = add('box', 200, 200); ed.select([bb.id]); ed.setSize('x', 80); ed.setSize('y', 60);
+  const h1 = add('cylinder-hole', 194, 200), h2 = add('cylinder-hole', 206, 200);
+  ed.select([bb.id, h1.id, h2.id]); await ed.group('union');
+  const gv = lib.geometry.getGeometry(ed.selectedNodes()[0]).attributes.position.count;
+  out.flushHoleVerts = gv; check('flush-holes-mesh-size', gv > 100 && gv < 6000, gv);
+  ed.deleteSelection();
+}
 out.nodes = ed.doc.nodes.length; out.fails = fails; out.csg = lib.geometry.stats;
 return out;
