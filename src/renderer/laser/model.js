@@ -17,6 +17,7 @@ export function defaultLayer(i) {
     interval: 0.1, angle: 0, crosshatch: false, bidirectional: true, overscan: 2.5,
     kerf: 0, tabs: 0, tabSize: 0.5, air: false, output: !isToolLayer(i), show: true,
     leadIn: 0, leadOut: 0, leadStyle: 'arc', pierce: 0, overcut: 0, perforate: false, perfCut: 3, perfSkip: 1.5,
+    zOffset: 0, zStep: 0,
     image: { mode: 'floyd', negative: false, brightness: 0, contrast: 0, gamma: 1, passThrough: false },
   };
 }
@@ -112,6 +113,30 @@ export function flattenSub(sub) {
 }
 
 const textCache = new Map();
+export const IDENT_M = [1, 0, 0, 1, 0, 0];
+
+// Variable text: {serial}, {serial:4}, {date}, {time}, {datetime}, {csv:2}
+let textVars = null, textVarsKey = '';
+export function setTextVariables(v) {
+  const key = JSON.stringify(v || null);
+  if (key === textVarsKey) return;
+  textVars = v ? JSON.parse(key) : null; textVarsKey = key;
+  textCache.clear();
+}
+export function resolveText(text) {
+  if (!text || text.indexOf('{') < 0) return text;
+  const v = textVars || {}, now = new Date(), p2 = (n) => String(n).padStart(2, '0');
+  const date = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}`, time = `${p2(now.getHours())}:${p2(now.getMinutes())}`;
+  return text.replace(/\{(serial|date|time|datetime|csv)(?::(\d+))?\}/gi, (_m, name, arg) => {
+    switch (name.toLowerCase()) {
+      case 'serial': return String(v.serial ?? 1).padStart(parseInt(arg || '0', 10) || 0, '0');
+      case 'date': return date;
+      case 'time': return time;
+      case 'datetime': return date + ' ' + time;
+      default: { const row = Array.isArray(v.csv) ? v.csv[v.row || 0] : null; return row ? String(row[(parseInt(arg || '1', 10) || 1) - 1] ?? '') : ''; }
+    }
+  });
+}
 /** Local-space outlines of a (non-group) shape: [{ pts, closed }]. */
 export function localPolys(s) {
   switch (s.type) {
@@ -130,9 +155,10 @@ export function localPolys(s) {
     }
     case 'path': return s.subs.map((sub) => ({ pts: flattenSub(sub), closed: !!sub.closed })).filter((p) => p.pts.length > 1);
     case 'text': {
-      const key = [s.text, s.font, s.size, s.align, s.spacing].join('\u0001');
+      const text = resolveText(s.text);
+      const key = [text, s.font, s.size, s.align, s.spacing].join('\u0001');
       let polys = textCache.get(key);
-      if (!polys) { polys = textContours(s.text, s.font, s.size, s.align, s.spacing || 0); textCache.set(key, polys); if (textCache.size > 300) textCache.delete(textCache.keys().next().value); }
+      if (!polys) { polys = textContours(text, s.font, s.size, s.align, s.spacing || 0); textCache.set(key, polys); if (textCache.size > 300) textCache.delete(textCache.keys().next().value); }
       return polys;
     }
     case 'image': return [{ pts: [[0, 0], [s.w, 0], [s.w, s.h], [0, s.h]], closed: true }];

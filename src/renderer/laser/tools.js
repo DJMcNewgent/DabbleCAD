@@ -11,7 +11,7 @@ import {
 } from './model.js';
 import { booleanOp, offsetPolys, maskFromImage, IMAGE_MODES } from './ops.js';
 import { importSVG, importDXF, exportSVG, exportDXF } from './io.js';
-import { toMachine, FLAVORS, formatTime } from './gcode.js';
+import { toMachine, FLAVORS, formatTime, machineOf, rotaryScale } from './gcode.js';
 
 export { IMAGE_MODES };
 
@@ -476,6 +476,23 @@ export function deviceDialog(ws) {
   const grid = h('input', { type: 'checkbox', checked: mc.showGrid !== false });
   const ret = h('select', { class: 'select' }, h('option', { value: 'origin' }, 'Return to origin'), h('option', { value: 'stay' }, 'Stay where the job ends'));
   ret.value = mc.returnTo;
+  const full = machineOf(mc), pz = full.plasma, ro = full.rotary;
+  const zOn = h('input', { type: 'checkbox', checked: !!mc.zEnabled });
+  const touch = h('input', { type: 'checkbox', checked: !!pz.touchOff });
+  const pierceH = numInput(pz.pierceHeight, 0.1, 0), cutH = numInput(pz.cutHeight, 0.1, 0), safeH = numInput(pz.safeHeight, 1, 0), plunge = numInput(pz.plungeFeed, 50, 10);
+  const probeDist = numInput(pz.probeDist, 1, 1), probeFeed = numInput(pz.probeFeed, 10, 10), swOff = numInput(pz.switchOffset, 0.05, 0);
+  const thcOn = h('input', { class: 'input', type: 'text', value: pz.thcOn, placeholder: 'for example M62 P0' }), thcOff = h('input', { class: 'input', type: 'text', value: pz.thcOff, placeholder: 'for example M63 P0' });
+  const rotOn = h('input', { type: 'checkbox', checked: !!ro.enabled });
+  const rotType = h('select', { class: 'select' }, h('option', { value: 'roller' }, 'Roller (object rests on wheels)'), h('option', { value: 'chuck' }, 'Chuck (object is gripped)'));
+  rotType.value = ro.type;
+  const rotAxis = h('select', { class: 'select' }, h('option', { value: 'Y' }, 'Y motor'), h('option', { value: 'A' }, 'A axis'));
+  rotAxis.value = ro.axis;
+  const mmRot = numInput(ro.mmPerRotation, 1, 0.1), rollD = numInput(ro.rollerDiameter, 0.1, 0.1), objD = numInput(ro.objectDiameter, 0.1, 0.1);
+  const rotNote = h('div', { class: 'insp-note' });
+  const readRotary = () => ({ enabled: rotOn.checked, type: rotType.value, axis: rotAxis.value, mmPerRotation: Math.max(0.1, val(mmRot, 360)), rollerDiameter: Math.max(0.1, val(rollD, 60)), objectDiameter: Math.max(0.1, val(objD, 80)) });
+  const showRotary = () => { const r = readRotary(); rotNote.textContent = r.enabled ? `1 mm around the object = ${rotaryScale({ rotary: r }).toFixed(4)} units on the ${r.axis} axis. Vertical distances in the design wrap around the object.` : 'Off: the Y axis moves normally.'; };
+  for (const el of [rotOn, rotType, rotAxis, mmRot, rollD, objD]) el.addEventListener('input', showRotary);
+  showRotary();
   m.body.append(
     h('div', { class: 'row' }, field('Device name', name), field('Controller', flavor)),
     h('div', { class: 'row' }, field('Work area width (mm)', bw), field('Work area height (mm)', bh)),
@@ -484,12 +501,30 @@ export function deviceDialog(ws) {
     h('div', { class: 'row' }, field('Speed units', units), field('When a job finishes', ret)),
     h('div', { class: 'row' }, field('Snap to grid (mm, 0 = off)', snap), field('Frame laser power (%)', framePower)),
     h('label', { class: 'check' }, grid, 'Show grid'),
+    h('details', { class: 'dev-group' }, h('summary', {}, 'Z axis and plasma torch height'),
+      h('label', { class: 'check' }, zOn, 'This machine has a Z axis that DabbleCAD may move'),
+      h('div', { class: 'insp-note' }, 'Lasers: adds Z offset and Z step per pass to each layer. Plasma: the torch rises to pierce height, fires, waits, then drops to cut height. Heights are above the material.'),
+      h('div', { class: 'row' }, field('Pierce height (mm)', pierceH), field('Cut height (mm)', cutH), field('Safe travel height (mm)', safeH)),
+      h('div', { class: 'row' }, field('Plunge speed (mm/min)', plunge)),
+      h('label', { class: 'check' }, touch, 'Touch off before every pierce (floating head or ohmic probe wired to the probe input)'),
+      h('div', { class: 'row' }, field('Probe travel (mm)', probeDist), field('Probe speed (mm/min)', probeFeed), field('Switch offset (mm)', swOff)),
+      h('div', { class: 'row' }, field('Torch height control ON command', thcOn), field('Torch height control OFF command', thcOff)),
+      h('div', { class: 'insp-note' }, 'Automatic height control while cutting is done by your controller or THC unit, not by DabbleCAD. These two commands only switch it on after the pierce and off before the torch stops; leave them empty if your machine does this itself. Use | between several commands.')),
+    h('details', { class: 'dev-group' }, h('summary', {}, 'Rotary attachment'),
+      h('label', { class: 'check' }, rotOn, 'Use the rotary for the next jobs'),
+      h('div', { class: 'row' }, field('Type', rotType), field('Driven by', rotAxis)),
+      h('div', { class: 'row' }, field('Axis units per full turn', mmRot), field('Roller diameter (mm)', rollD), field('Object diameter (mm)', objD)),
+      rotNote),
     h('div', { class: 'insp-note' }, 'These settings describe your machine and apply to every design. The S-value max must match your controller ($30 on GRBL, usually 1000).'),
     actions(m, 'Save', () => {
       Object.assign(mc, {
         name: name.value.trim() || 'Laser', flavor: flavor.value, bedW: Math.max(10, val(bw, 400)), bedH: Math.max(10, val(bh, 400)), origin: origin.value,
         sMax: Math.max(1, val(smax, 1000)), rapid: Math.max(100, val(rapid, 6000)), baud: parseInt(baud.value, 10), speedUnits: units.value, returnTo: ret.value,
         gridSnap: Math.max(0, val(snap, 1)), framePower: Math.max(0, Math.min(10, val(framePower, 0))), showGrid: grid.checked,
+        zEnabled: zOn.checked,
+        plasma: { touchOff: touch.checked, probeDist: Math.max(1, val(probeDist, 30)), probeFeed: Math.max(10, val(probeFeed, 300)), switchOffset: Math.max(0, val(swOff, 0)),
+          pierceHeight: Math.max(0, val(pierceH, 3.8)), cutHeight: Math.max(0, val(cutH, 1.5)), safeHeight: Math.max(0, val(safeH, 15)), plungeFeed: Math.max(10, val(plunge, 600)), thcOn: thcOn.value.trim(), thcOff: thcOff.value.trim() },
+        rotary: readRotary(),
       });
       m.close();
       ws.saveMachine();

@@ -1,11 +1,22 @@
 // Job planning (cut order, fills, image rasters) and G-code output for GRBL-style controllers.
-import { flatten, layerOf, pointInPoly, boundsOf, mul, isToolLayer } from './model.js';
+import { flatten, layerOf, pointInPoly, boundsOf, mul, apply, isToolLayer } from './model.js';
 import { offsetPolys, processImage } from './ops.js';
 
 export const DEFAULT_MACHINE = {
   name: 'GRBL laser', flavor: 'grbl', bedW: 400, bedH: 400, origin: 'bl', sMax: 1000, rapid: 6000,
   speedUnits: 'mm/s', returnTo: 'origin', baud: 115200, framePower: 0, gridSnap: 1, showGrid: true,
+  // Z axis (laser focus moves, plasma torch height)
+  zEnabled: false,
+  // plasma torch height: all heights are above the material surface
+  plasma: { touchOff: false, probeDist: 30, probeFeed: 300, switchOffset: 0, pierceHeight: 3.8, cutHeight: 1.5, safeHeight: 15, plungeFeed: 600, thcOn: '', thcOff: '' },
+  // rotary attachment driven by the Y motor (or its own A axis)
+  rotary: { enabled: false, type: 'roller', mmPerRotation: 360, rollerDiameter: 60, objectDiameter: 80, axis: 'Y' },
 };
+
+/** Machine settings with every nested default filled in (older saved machines lack the newer groups). */
+export function machineOf(machine) {
+  return { ...DEFAULT_MACHINE, ...machine, plasma: { ...DEFAULT_MACHINE.plasma, ...(machine.plasma || {}) }, rotary: { ...DEFAULT_MACHINE.rotary, ...(machine.rotary || {}) } };
+}
 
 export const FLAVORS = [
   ['grbl', 'GRBL (M4 dynamic power)'], ['grbl-m3', 'GRBL (M3 constant power)'], ['marlin', 'Marlin (inline power, S 0-255)'], ['smoothie', 'Smoothieware (S 0-1)'],
@@ -182,11 +193,13 @@ function orderPaths(paths, start, opt) {
       for (let i = 0; i < pool.length; i++) {
         const p = pool[i];
         if (p.closed) {
-          for (let k = 0; k < p.pts.length; k++) { const dd = dist(pos, p.pts[k]); if (dd < bestD) { bestD = dd; best = i; bestStart = k; rev = false; } }
+          // a hand-picked start point is kept: only the first vertex may begin the cut
+          const kMax = p.fixedStart ? 1 : p.pts.length;
+          for (let k = 0; k < kMax; k++) { const dd = dist(pos, p.pts[k]); if (dd < bestD) { bestD = dd; best = i; bestStart = k; rev = false; } }
         } else {
           const d0 = dist(pos, p.pts[0]), d1 = dist(pos, p.pts[p.pts.length - 1]);
           if (d0 < bestD) { bestD = d0; best = i; rev = false; }
-          if (d1 < bestD) { bestD = d1; best = i; rev = true; }
+          if (d1 < bestD && !p.fixedDir) { bestD = d1; best = i; rev = true; }
         }
       }
       const p = pool.splice(best, 1)[0];
@@ -213,8 +226,14 @@ function rasterImage(entry, layer, getImage, moves, warnings) {
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   const m = mul([res, 0, 0, res, -x0 * res, -y0 * res], entry.m);
   ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+  if (Array.isArray(s.mask) && s.mask.length) {
+    // only the part of the picture inside its mask is engraved
+    ctx.beginPath();
+    for (const poly of s.mask) { poly.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]))); ctx.closePath(); }
+    ctx.clip('evenodd');
+  }
   ctx.drawImage(img, 0, 0, s.w, s.h);
-  const burn = processImage(ctx.getImageData(0, 0, pw, ph), layer.image);
+  const burn = processImage(ctx.getImageData(0, 0, pw, ph), { ...layer.image, pxPerMM: res });
   const gray = layer.image.mode === 'grayscale';
   const f = layer.speed * 60, px = 1 / res, over = (layer.speed * layer.overscan) / 100;
   const pMax = (layer.powerMax / 100) * ((s.powerScale ?? 100) / 100), pMin = layer.powerMin / 100;
@@ -267,13 +286,21 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
     const mine = entries.filter((e) => e.layer === li);
     if (!mine.length) continue;
     const start = moves.length;
+    // a layer can carry extra operations (sub-layers) that run on the same shapes, one after another
+    const ops = [layer, ...(Array.isArray(layer.subs) ? layer.subs : []).filter((s) => s && s.output !== false).map((s) => ({ ...layer, ...s, subs: undefined }))];
+    for (const layer of ops) { // eslint-disable-line no-shadow
     const f = layer.speed * 60;
     const power = (e) => (layer.powerMax / 100) * ((e.shape.powerScale ?? 100) / 100);
     moves.push({ air: !!layer.air, layer: li });
     const images = mine.filter((e) => e.shape.type === 'image');
     const vectors = mine.filter((e) => e.shape.type !== 'image');
     if (machine.flavor === 'plasma' && (images.length || layer.mode !== 'line')) warnings.push(`Layer ${String(li + 1).padStart(2, '0')}: fills and images do not suit a plasma cutter; use Line mode`);
+    // hand-picked start points, in bed coordinates
+    const startOf = new Map();
+    for (const e of vectors) if (e.shape.cutStart && !startOf.has(e.shape)) startOf.set(e.shape, apply(e.m, e.shape.cutStart));
     for (let pass = 0; pass < Math.max(1, layer.passes); pass++) {
+      // focus / height move for this pass: the offset, stepping further down on each extra pass
+      if (machine.zEnabled && machine.flavor !== 'plasma' && (layer.zOffset || layer.zStep)) moves.push({ z: (layer.zOffset || 0) - pass * (layer.zStep || 0) });
       for (const e of images) rasterImage(e, layer, getImage, moves, warnings);
       if (!vectors.length) continue;
       if (layer.mode === 'fill') {
@@ -328,8 +355,19 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
           for (const e of list) {
             if (e.pts.length < 2) continue;
             const p = power(e);
+            let fixedStart = false;
+            const fixedDir = !!e.shape.cutReverse;
+            if (fixedDir) e.pts = [...e.pts].reverse();
+            const want = e.closed ? startOf.get(e.shape) : null;
+            if (want) {
+              let k = 0, bestK = Infinity;
+              e.pts.forEach((q, i) => { const d = dist(q, want); if (d < bestK) { bestK = d; k = i; } });
+              e.pts = [...e.pts.slice(k), ...e.pts.slice(0, k)];
+              fixedStart = true;
+            }
+            if (fixedStart || fixedDir) { e.fixedStart = fixedStart; e.fixedDir = fixedDir; }
             if (e.closed && layer.tabs > 0) for (const piece of applyTabs(e.pts, layer.tabs, layer.tabSize)) paths.push({ ...piece, ring: e.pts, wasClosed: true, power: p });
-            else paths.push({ pts: e.pts, closed: e.closed, ring: e.closed ? e.pts : null, power: p });
+            else paths.push({ pts: e.pts, closed: e.closed, ring: e.closed ? e.pts : null, power: p, fixedStart: !!e.fixedStart, fixedDir: !!e.fixedDir });
           }
         }
         const res = orderPaths(paths, pos, opt);
@@ -369,6 +407,7 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
       }
       const last = [...moves].reverse().find((mv) => mv.x != null);
       if (last) pos = [last.x, last.y];
+    }
     }
     for (let i = start; i < moves.length; i++) moves[i].layer = li;
   }
@@ -412,6 +451,46 @@ function offsetFor(doc, plan, machine) {
   return [-a[0], -a[1]];
 }
 
+/**
+ * Print-and-cut: the similarity transform (move, turn, optionally scale) that carries two
+ * design points onto the two machine positions where the laser was jogged to them.
+ * Returns a function on machine coordinates, or null when registration is off or degenerate.
+ */
+export function registrationMap(doc, machine) {
+  const r = doc.registration;
+  if (!r || !r.enabled || !r.d1 || !r.d2 || !r.m1 || !r.m2) return null;
+  const D1 = toMachine(machine, r.d1[0], r.d1[1]), D2 = toMachine(machine, r.d2[0], r.d2[1]);
+  const dx = D2[0] - D1[0], dy = D2[1] - D1[1], mx = r.m2[0] - r.m1[0], my = r.m2[1] - r.m1[1];
+  const dl = Math.hypot(dx, dy), ml = Math.hypot(mx, my);
+  if (dl < 1e-6 || ml < 1e-6) return null;
+  const k = r.scale === false ? 1 : ml / dl;
+  const th = Math.atan2(my, mx) - Math.atan2(dy, dx), c = Math.cos(th) * k, s = Math.sin(th) * k;
+  const fn = (x, y) => [r.m1[0] + c * (x - D1[0]) - s * (y - D1[1]), r.m1[1] + s * (x - D1[0]) + c * (y - D1[1])];
+  fn.scale = ml / dl; fn.angle = (th * 180) / Math.PI;
+  return fn;
+}
+
+/** How far the rotary's driven axis must move for 1 mm of travel around the object. */
+export function rotaryScale(machine) {
+  const r = machine.rotary;
+  if (!r || !r.enabled) return 1;
+  const d = r.type === 'chuck' ? r.objectDiameter : r.rollerDiameter;
+  return d > 0 ? r.mmPerRotation / (Math.PI * d) : 1;
+}
+
+/** Bed point -> the "X.. Y.." (or "X.. A..") words for this job: registration, start offset, rotary. */
+function wordMapper(doc, plan, machine) {
+  const reg = registrationMap(doc, machine);
+  const [ox, oy] = reg ? [0, 0] : offsetFor(doc, plan, machine);
+  const k = rotaryScale(machine);
+  const axis = machine.rotary && machine.rotary.enabled && machine.rotary.axis === 'A' ? 'A' : 'Y';
+  return (x, y) => {
+    let [mx, my] = toMachine(machine, x, y);
+    if (reg) [mx, my] = reg(mx, my); else { mx += ox; my += oy; }
+    return `X${n3(mx)} ${axis}${n3(my * k)}`;
+  };
+}
+
 const n3 = (v) => { const s = (Math.round(v * 1000) / 1000).toFixed(3).replace(/\.?0+$/, ''); return s === '-0' ? '0' : s; };
 
 /** Spindle (S) word value for a power fraction 0..1, in the controller's own scale. */
@@ -425,22 +504,50 @@ export function toGcode(plan, doc, machine) {
   const sVal = (s) => sValue(machine, s);
   // stock Marlin needs the G word on every move (implicit modal motion is an optional build flag)
   const modal = fl !== 'marlin';
-  const [ox, oy] = offsetFor(doc, plan, machine);
+  machine = machineOf(machine);
+  const word = wordMapper(doc, plan, machine);
+  const useG92 = doc.startFrom === 'current' && !registrationMap(doc, machine);
   const out = [`; DabbleCAD Laser job`, `; ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`,
     `; Controller: ${fl}   Bounds: ${plan.bounds ? `${n3(plan.bounds.w)} x ${n3(plan.bounds.h)} mm` : 'empty'}   Est. time: ${formatTime(plan.stats.time)}`,
     'G21', 'G90'];
-  if (doc.startFrom === 'current') out.push('G92 X0 Y0 ; job starts at the current position');
+  if (useG92) out.push('G92 X0 Y0 ; job starts at the current position');
   const plasma = fl === 'plasma';
+  const pz = machine.plasma, zAxis = !!machine.zEnabled;
+  const lines = (text) => String(text || '').split(/\r?\n|\|/).map((l) => l.trim()).filter(Boolean);
+  let zUsed = false, probed = false;
+  if (plasma && zAxis) out.push(`G0 Z${n3(pz.safeHeight)} ; safe height`);
   if (!plasma) out.push(fl === 'grbl' ? 'M4 S0' : fl === 'grbl-m3' ? 'M3 S0' : fl === 'marlin' ? 'M3 I' : 'M3 S0');
   let lastF = null, lastS = null, air = false, rapidMode = null, layer = null, torch = false;
   // GRBL dwells in seconds; Marlin and Smoothieware take milliseconds in P
   const dwell = (sec) => (fl === 'marlin' || fl === 'smoothie' ? `G4 P${Math.round(sec * 1000)}` : `G4 P${n3(sec)}`);
-  const torchOn = () => { out.push('M3 S' + sVal(1)); torch = true; };
-  const torchOff = () => { if (torch) { out.push('M5'); torch = false; } };
+  // Ignite: find the material (optional touch-off), rise to pierce height, fire, wait, drop to cut height.
+  const torchOn = (wait = 0) => {
+    if (zAxis) {
+      if (pz.touchOff) {
+        out.push(`G38.2 Z${n3(-Math.abs(pz.probeDist))} F${n3(pz.probeFeed)} ; touch off`, `G92 Z${n3(-Math.abs(pz.switchOffset))} ; material surface is Z0`);
+        probed = true;
+      }
+      out.push(`G0 Z${n3(pz.pierceHeight)} ; pierce height`);
+    }
+    out.push('M3 S' + sVal(1));
+    if (wait > 0) out.push(dwell(wait) + ' ; pierce');
+    if (zAxis) { out.push(`G1 Z${n3(pz.cutHeight)} F${n3(pz.plungeFeed)} ; cut height`); lastF = null; rapidMode = 'G1'; }
+    for (const l of lines(pz.thcOn)) out.push(l);
+    torch = true;
+  };
+  const torchOff = () => {
+    if (!torch) return;
+    for (const l of lines(pz.thcOff)) out.push(l);
+    out.push('M5');
+    if (zAxis) { out.push(`G0 Z${n3(pz.safeHeight)}`); rapidMode = 'G0'; }
+    torch = false;
+  };
   for (const mv of plan.moves) {
     if (mv.x == null) {
-      if (mv.dwell) {
-        if (plasma) { if (!torch) torchOn(); out.push(dwell(mv.dwell) + ' ; pierce'); }
+      if (mv.z != null) {
+        if (!plasma && zAxis) { out.push(`G0 Z${n3(mv.z)}`); rapidMode = 'G0'; zUsed = true; }
+      } else if (mv.dwell) {
+        if (plasma) { if (!torch) torchOn(mv.dwell); else out.push(dwell(mv.dwell) + ' ; pierce'); }
         else {
           // hold the beam on in place: constant-power M3 in G1 mode, then back to the cutting mode
           const s = sVal(mv.s), f = n3(mv.f);
@@ -452,8 +559,7 @@ export function toGcode(plan, doc, machine) {
       continue;
     }
     if (mv.layer !== layer) { layer = mv.layer; out.push(`; Layer ${String(layer + 1).padStart(2, '0')}`); }
-    const [mx, my] = toMachine(machine, mv.x, mv.y);
-    const xy = `X${n3(mx + ox)} Y${n3(my + oy)}`;
+    const xy = word(mv.x, mv.y);
     if (plasma) {
       // the torch is either on or off: no power words, and it is always off while travelling
       if (mv.rapid || !(mv.s > 0)) {
@@ -477,10 +583,12 @@ export function toGcode(plan, doc, machine) {
       rapidMode = 'G1'; lastS = s; lastF = f;
     }
   }
-  out.push('M5');
+  if (plasma) torchOff(); else out.push('M5');
   if (air) out.push('M9');
-  if (doc.startFrom === 'current') out.push('G0 X0 Y0', 'G92.1');
-  else if (machine.returnTo === 'origin' && doc.startFrom === 'absolute') out.push('G0 X0 Y0');
+  if (zUsed) out.push('G0 Z0');
+  if (useG92) out.push('G0 X0 Y0', 'G92.1');
+  else if (machine.returnTo === 'origin' && doc.startFrom === 'absolute' && !registrationMap(doc, machine) && !(machine.rotary && machine.rotary.enabled)) out.push('G0 X0 Y0');
+  if (probed && !useG92) out.push('G92.1 ; clear the touch-off offset');
   out.push('M2', '');
   return out.join('\n');
 }
@@ -510,17 +618,19 @@ export function frameGcode(plan, doc, machine, rubberBand = false) {
     }
     ring = hull(pts);
   } else ring = [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]];
-  const [ox, oy] = offsetFor(doc, plan, machine);
+  machine = machineOf(machine);
+  const word = wordMapper(doc, plan, machine);
+  const useG92 = doc.startFrom === 'current' && !registrationMap(doc, machine);
   const frac = Math.max(0, Math.min(1, (machine.framePower || 0) / 100));
   const pw = frac > 0 && Number(sValue(machine, frac)) > 0 ? sValue(machine, frac) : null;
   const out = ['G21', 'G90'];
-  if (doc.startFrom === 'current') out.push('G92 X0 Y0');
-  const pt = (p) => { const [mx, my] = toMachine(machine, p[0], p[1]); return `X${n3(mx + ox)} Y${n3(my + oy)}`; };
+  if (useG92) out.push('G92 X0 Y0');
+  const pt = (p) => word(p[0], p[1]);
   out.push('G0 ' + pt(ring[0]));
   if (pw) out.push('M3 S' + pw);
   for (const p of [...ring.slice(1), ring[0]]) out.push(`G1 ${pt(p)} F${n3(machine.rapid)}` + (pw ? ' S' + pw : ' S0'));
   out.push('M5');
-  if (doc.startFrom === 'current') out.push('G0 X0 Y0', 'G92.1');
+  if (useG92) out.push('G0 X0 Y0', 'G92.1');
   return out.join('\n') + '\n';
 }
 

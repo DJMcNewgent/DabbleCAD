@@ -227,5 +227,136 @@ document.querySelector('.btn[data-mode="laser"]').click(); await wait(200);
   check('select-layer', ws.sel.length === 2, ws.sel.length);
   ws.select([]);
 }
+// plasma torch height, Z moves, sub-layers, start points, rotary, print-and-cut
+{
+  const G = L.gcode, M = L.model, X = L.extras;
+  const cutLen = (plan) => { let c = 0, prev = null; for (const m of plan.moves) { if (m.x == null) continue; if (prev && !m.rapid && m.s > 0) c += Math.hypot(m.x - prev.x, m.y - prev.y); prev = m; } return c; };
+  const li = 16;
+  const reset = (extra = {}) => Object.assign(M.layerOf(ws.doc, li), { mode: 'line', speed: 20, powerMax: 100, powerMin: 0, passes: 1, kerf: 0, tabs: 0, leadIn: 0, leadOut: 0, pierce: 0, overcut: 0, perforate: false, zOffset: 0, zStep: 0, subs: [] }, extra);
+  const sq = () => M.makeRect(li, 10, 10, 40, 40);
+  const docOf = (shapes, more = {}) => ({ ...ws.doc, registration: null, startFrom: 'absolute', shapes, ...more });
+
+  // torch height: touch off, pierce height, fire, dwell, cut height, THC on ... THC off, torch off, safe height
+  reset({ pierce: 500 });
+  const pm = { ...ws.machine, flavor: 'plasma', zEnabled: true, plasma: { touchOff: true, probeDist: 30, probeFeed: 300, switchOffset: 1.2, pierceHeight: 4, cutHeight: 1.5, safeHeight: 12, plungeFeed: 600, thcOn: 'M62 P0', thcOff: 'M63 P0' } };
+  const d1 = docOf([sq(), M.makeRect(li, 100, 10, 20, 20)]);
+  const pg = G.toGcode(G.planJob(d1, pm, ws.getImage), d1, pm);
+  const seq = /G38\.2 Z-30 F300 ; touch off\nG92 Z-1\.2 ; material surface is Z0\nG0 Z4 ; pierce height\nM3 S1000\nG4 P0\.5 ; pierce\nG1 Z1\.5 F600 ; cut height\nM62 P0\n/g;
+  check('plasma-height-sequence', (pg.match(seq) || []).length === 2 && (pg.match(/M63 P0\nM5\nG0 Z12/g) || []).length === 2, pg.slice(0, 420));
+  let z = null, lowTravel = 0;
+  for (const line of pg.split('\n')) { const mz = /^G[01] Z(-?[\d.]+)/.exec(line); if (mz) z = +mz[1]; if (/^G0 X/.test(line) && z !== 12) lowTravel += 1; }
+  check('plasma-travel-at-safe-height', lowTravel === 0 && pg.includes('G92.1 ; clear the touch-off offset'), lowTravel);
+  // without a Z axis the plasma output is unchanged from before
+  check('plasma-no-z', !/ Z/.test(G.toGcode(G.planJob(d1, { ...pm, zEnabled: false }, ws.getImage), d1, { ...pm, zEnabled: false })));
+
+  // laser focus: offset, stepping down each pass, back to zero at the end
+  reset({ passes: 3, zOffset: 2, zStep: 0.5 });
+  const zm = { ...ws.machine, zEnabled: true };
+  const d2 = docOf([sq()]);
+  const zg = G.toGcode(G.planJob(d2, zm, ws.getImage), d2, zm);
+  const zs = zg.split('\n').filter((l) => /^G0 Z/.test(l));
+  check('laser-z-steps', zs.join('|') === 'G0 Z2|G0 Z1.5|G0 Z1|G0 Z0', zs);
+  check('laser-z-off-by-default', !/ Z/.test(G.toGcode(G.planJob(d2, ws.machine, ws.getImage), d2, ws.machine)));
+
+  // sub-layers: a second operation on the same shapes
+  reset({ subs: [{ mode: 'line', speed: 50, powerMax: 20, passes: 1 }] });
+  const sp = G.planJob(d2, ws.machine, ws.getImage), sg = G.toGcode(sp, d2, ws.machine);
+  check('sub-layer-runs', near(cutLen(sp), 320, 0.05) && sg.includes('F1200') && sg.includes('F3000') && sg.includes('S200'), cutLen(sp));
+  reset();
+
+  // hand-picked start point and direction
+  const a = sq(); a.cutStart = [40, 40];
+  const p1 = G.planJob(docOf([a]), ws.machine, ws.getImage).moves.filter((m) => m.x != null);
+  check('cut-start-point', near(p1[0].x, 50) && near(p1[0].y, 50), [p1[0].x, p1[0].y]);
+  const b = sq(); b.cutStart = [40, 40]; b.cutReverse = true;
+  const p2 = G.planJob(docOf([b]), ws.machine, ws.getImage).moves.filter((m) => m.x != null);
+  check('cut-direction-reversed', near(p2[0].x, 50) && near(p2[0].y, 50) && (p1[1].x !== p2[1].x || p1[1].y !== p2[1].y), [[p1[1].x, p1[1].y], [p2[1].x, p2[1].y]]);
+
+  // rotary: travel around the object is scaled onto the driven axis
+  const rm = { ...ws.machine, rotary: { enabled: true, type: 'chuck', mmPerRotation: 360, rollerDiameter: 60, objectDiameter: 100, axis: 'A' } };
+  check('rotary-scale', near(G.rotaryScale(rm), 360 / (Math.PI * 100), 1e-9) && near(G.rotaryScale({ rotary: { ...rm.rotary, type: 'roller' } }), 360 / (Math.PI * 60), 1e-9) && G.rotaryScale(ws.machine) === 1);
+  const rg = G.toGcode(G.planJob(d2, rm, ws.getImage), d2, rm);
+  const firstA = /X10 A([\d.]+)/.exec(rg);
+  out.rotaryA = firstA && +firstA[1];
+  check('rotary-gcode', !!firstA && !/ Y\d/.test(rg) && near(+firstA[1], (ws.machine.bedH - 10) * 360 / (Math.PI * 100), 0.01) || (!!firstA && near(+firstA[1], (ws.machine.bedH - 50) * 360 / (Math.PI * 100), 0.01)), out.rotaryA);
+
+  // print and cut: two marks a quarter turn away from where the design has them
+  const reg = { enabled: true, scale: true, d1: [100, 100], d2: [200, 100], m1: [50, 50], m2: [50, 150] };
+  const map = G.registrationMap({ registration: reg }, ws.machine);
+  const D1 = G.toMachine(ws.machine, 100, 100), mid = map(D1[0] + 50, D1[1]);
+  check('print-cut-map', !!map && near(map(D1[0], D1[1])[0], 50) && near(mid[0], 50) && near(mid[1], 100) && near(map.angle, 90, 1e-6) && near(map.scale, 1, 1e-9), [mid, map && map.angle]);
+  const lineShape = M.makePath(li, [{ closed: false, nodes: [{ x: 100, y: 100 }, { x: 200, y: 100 }] }]);
+  const d3 = docOf([lineShape], { registration: reg, startFrom: 'current' });
+  const pcg = G.toGcode(G.planJob(d3, ws.machine, ws.getImage), d3, ws.machine);
+  check('print-cut-gcode', /X50 Y50\b/.test(pcg) && /X50 Y150\b/.test(pcg) && !pcg.includes('G92'), pcg.slice(0, 260));
+  check('print-cut-off', G.registrationMap({ registration: { ...reg, enabled: false } }, ws.machine) === null);
+  const pcd = X.printCutDialog(ws); await wait(100);
+  check('print-cut-dialog', pcd.el.querySelectorAll('.pc-item').length === 2);
+  pcd.close(); ws.doc.registration = null;
+}
+// variable text, text on a path, image modes and masks, camera overlay, new settings screens
+{
+  const G = L.gcode, M = L.model, X = L.extras;
+  M.setTextVariables({ serial: 7, step: 1, csv: [['Ada', 'Lovelace'], ['Alan', 'Turing']], row: 1 });
+  check('variable-text', M.resolveText('SN-{serial:4}') === 'SN-0007' && M.resolveText('{csv:1} {csv:2}') === 'Alan Turing' && /^\d{4}-\d{2}-\d{2}$/.test(M.resolveText('{date}')) && M.resolveText('plain') === 'plain', M.resolveText('SN-{serial:4} {csv:1}'));
+  check('csv-parse', JSON.stringify(X.parseCsv('a,b\n"x, y",z\n')) === '[["a","b"],["x, y","z"]]', X.parseCsv('a,b\n"x, y",z\n'));
+  ws.doc.variables = { serial: 7, step: 2, autoAdvance: true, csv: null, row: 0 };
+  const vt = M.makeText(17, 20, 200, 'No {serial:3}', 'Sans Bold', 8); ws.add([vt]);
+  const w7 = M.boundsOf([vt]).w;
+  check('variable-advance', X.advanceVariables(ws) === true && ws.doc.variables.serial === 9 && M.resolveText('{serial}') === '9' && M.boundsOf([vt]).w > 0 && w7 > 0, ws.doc.variables.serial);
+  const vd = X.variableTextDialog(ws); await wait(80); check('variable-dialog', vd.el.querySelectorAll('.var-tokens button').length === 6); vd.close();
+
+  // bending outlines along a line that runs straight down the bed
+  const bent = X.bendAlong([{ closed: false, pts: [[0, 10], [10, 10], [10, 5]] }], [[0, 0], [0, 100]]);
+  const bp = bent[0].pts, lastB = bp[bp.length - 1], onLine = bp.find((q) => near(q[1], 10, 0.01) && near(q[0], 0, 0.01));
+  check('bend-along', !!onLine && near(lastB[0], 5, 0.01) && near(lastB[1], 10, 0.01), [onLine, lastB]);
+  const tx = M.makeText(17, 20, 250, 'CURVE', 'Sans Bold', 8), arc = M.makeEllipse(17, 60, 220, 80, 80);
+  ws.add([tx, arc]); ws.select([tx.id, arc.id]);
+  const onPath = X.textOnPath(ws);
+  check('text-on-path', !!onPath && onPath.type === 'path' && onPath.subs.length >= 5 && !ws.doc.shapes.includes(tx), onPath && onPath.subs.length);
+
+  // halftone: dot coverage follows the tone
+  const tone = (v) => { const d = new ImageData(200, 200); for (let i = 0; i < d.data.length; i += 4) { d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } const o = L.ops.processImage(d, { mode: 'halftone', pxPerMM: 10 }); let n = 0; for (const q of o) if (q) n += 1; return n / o.length; };
+  out.halftone = [tone(191), tone(128), tone(64)].map((v) => +v.toFixed(2));
+  check('halftone-coverage', near(out.halftone[1], 0.5, 0.04) && out.halftone[0] > 0.12 && out.halftone[0] < 0.36 && out.halftone[2] > 0.64 && out.halftone[2] < 0.88 && tone(255) === 0 && tone(0) === 1, out.halftone);
+
+  // image mask: only the half inside the mask is engraved
+  const cvs = document.createElement('canvas'); cvs.width = 40; cvs.height = 40; const c2 = cvs.getContext('2d'); c2.fillStyle = '#000'; c2.fillRect(0, 0, 40, 40);
+  const im = M.makeImage(18, 300, 200, 20, 20, cvs.toDataURL(), 40, 40);
+  Object.assign(M.layerOf(ws.doc, 18), { mode: 'line', speed: 100, powerMax: 50, interval: 0.5, overscan: 0 }); M.layerOf(ws.doc, 18).image.mode = 'threshold';
+  const getImg = (s) => (s.id === im.id ? cvs : ws.getImage(s));
+  const burnX = (shape) => { const pl = G.planJob({ ...ws.doc, shapes: [shape] }, ws.machine, getImg); let lo = Infinity, hi = -Infinity, prev = null; for (const m of pl.moves) { if (m.x == null) continue; if (prev && !m.rapid && m.s > 0) { lo = Math.min(lo, prev.x, m.x); hi = Math.max(hi, prev.x, m.x); } prev = m; } return [lo, hi]; };
+  const full = burnX(im);
+  im.mask = [[[0, 0], [10, 0], [10, 20], [0, 20]]];
+  const half = burnX(im);
+  out.maskX = [full.map((v) => +v.toFixed(1)), half.map((v) => +v.toFixed(1))];
+  check('image-mask', near(full[0], 300, 0.6) && near(full[1], 320, 0.6) && near(half[0], 300, 0.6) && near(half[1], 310, 0.6), out.maskX);
+
+  // camera: a photo taken at an angle is flattened onto the bed
+  const Hm = X.homography([[0, 0], [10, 0], [10, 10], [0, 10]], [[5, 5], [25, 8], [28, 30], [3, 26]]);
+  const pc = X.project(Hm, 10, 10), p0 = X.project(Hm, 0, 0);
+  check('homography', near(pc[0], 28, 1e-6) && near(pc[1], 30, 1e-6) && near(p0[0], 5, 1e-6), [pc, p0]);
+  const photo = document.createElement('canvas'); photo.width = 200; photo.height = 100; const pc2 = photo.getContext('2d');
+  pc2.fillStyle = '#f00'; pc2.fillRect(0, 0, 100, 100); pc2.fillStyle = '#00f'; pc2.fillRect(100, 0, 100, 100);
+  const cam = X.cameraDialog(ws); await wait(80);
+  cam.el.__camera.setFrame(photo, 200, 100); cam.el.__camera.setCorners([[0, 0], [200, 0], [200, 100], [0, 100]]); cam.el.__camera.apply(); await wait(50);
+  const ov = ws.overlay && ws.overlay.canvas.getContext('2d').getImageData(0, 0, ws.overlay.canvas.width, ws.overlay.canvas.height);
+  const px = (fx) => { const x = Math.floor(ov.width * fx), y = Math.floor(ov.height / 2), i = (y * ov.width + x) * 4; return [ov.data[i], ov.data[i + 2]]; };
+  check('camera-overlay', !!ov && px(0.25)[0] > 200 && px(0.25)[1] < 50 && px(0.75)[1] > 200 && px(0.75)[0] < 50, ov && [px(0.25), px(0.75)]);
+  await shot('l-camera'); cam.close(); ws.overlay = null; ws.app.patchSettings({ laserCamera: null });
+
+  // settings screens: device groups save, sub-layer row works
+  const before = JSON.stringify(ws.machine);
+  L.tools.deviceDialog(ws); await wait(120);
+  const dm = document.querySelector('.modal');
+  check('device-groups', dm.querySelectorAll('details.dev-group').length === 2);
+  [...dm.querySelectorAll('button')].find((b2) => b2.textContent === 'Save').click(); await wait(120);
+  check('device-save', !!ws.machine.plasma && !!ws.machine.rotary && ws.machine.zEnabled === false && ws.machine.rotary.enabled === false && JSON.parse(before).flavor === ws.machine.flavor, Object.keys(ws.machine));
+  ws.selectedLayer = 17; ws.refresh(); await wait(60);
+  const plus = [...document.querySelectorAll('.le-subs button')].find((b2) => b2.textContent === '+');
+  check('sub-layer-row', !!plus);
+  if (plus) { plus.click(); await wait(60); check('sub-layer-added', M.layerOf(ws.doc, 17).subs.length === 1 && ws.subIndex === 1 && !!document.querySelector('.le-subs .btn-ghost'), M.layerOf(ws.doc, 17).subs.length); M.layerOf(ws.doc, 17).subs = []; ws.subIndex = 0; }
+  M.setTextVariables(null); ws.doc.variables = null; ws.select([]);
+}
 out.fails = fails;
 return out;

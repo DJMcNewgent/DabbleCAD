@@ -161,9 +161,12 @@ ed.select([d1.id]);
   ed.select([p1.id, p2.id]); await ed.group('union');
   const grp = ed.selectedNodes()[0]; grp.name = 'Bracket'; const before = ed.doc.nodes.length;
   check('enter-group', ed.enterGroup(grp) === true && ed.doc.nodes.length === before + 1 && !!ed.editing);
+  // the combined result stays visible while the group is open, and its parts are ghosted
+  check('edit-preview', !!ed.previewMesh && ed.previewMesh.geometry.attributes.position.count > 0 && [...ed.meshes.values()].some((m) => m.material.opacity < 0.2));
   const extra = add('sphere', -180, 200);
   await ed.exitGroup();
   const again = ed.selectedNodes()[0];
+  check('edit-preview-gone', !ed.previewMesh && ![...ed.meshes.values()].some((m) => m.material.opacity < 0.2));
   check('exit-group', !ed.editing && ed.doc.nodes.length === before && again && again.type === 'group' && again.children.length === 3 && again.name === 'Bracket', again && [again.type, again.children && again.children.length, again.name]);
   ed.deleteSelection();
 }

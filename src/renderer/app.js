@@ -654,7 +654,7 @@ export class App {
     }[ed.tool];
     clear(this.banner);
     if (text) this.banner.append(h('span', {}, text), h('kbd', {}, 'Esc'));
-    else if (ed.editing) this.banner.append(h('span', {}, 'Editing the parts of a group. Move, resize, add or delete parts, then finish.'), button({ label: 'Done', cls: 'btn-primary', onClick: () => ed.exitGroup() }));
+    else if (ed.editing) this.banner.append(h('span', {}, 'Editing a group: the solid shape shows the result, the faint shapes are its parts. Move, resize, add or delete parts, then finish.'), button({ label: 'Done', cls: 'btn-primary', onClick: () => ed.exitGroup() }));
     else if (ed.hasFrame) this.banner.append(h('span', {}, 'Temporary workplane active.'), button({ label: 'Reset workplane', cls: 'btn-outline', onClick: () => { ed.setFrame(null); this._updateBanner(); } }));
   }
 

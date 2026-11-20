@@ -6,7 +6,9 @@ import {
   LAYER_COLORS, LAYER_NAMES, isToolLayer, newLaserDoc, layerOf, mul, apply, invert, translate, scaling, rotation, about,
   makeRect, makeEllipse, makePolygon, makePath, makeGroup, cloneShape, deep, walkShapes, flatten, boundsOf, hitShape, toPath, typeLabel, lid,
 } from './model.js';
-import { DEFAULT_MACHINE, planJob, toGcode, frameGcode, toMachine, usedLayers, formatTime, sValue } from './gcode.js';
+import { DEFAULT_MACHINE, machineOf, planJob, toGcode, frameGcode, toMachine, usedLayers, formatTime, sValue } from './gcode.js';
+import * as extras from './extras.js';
+import { setTextVariables } from './model.js';
 import { LaserDevice } from './device.js';
 import * as tools from './tools.js';
 import { depthMapStudio } from './depthmap.js';
@@ -21,7 +23,9 @@ export class LaserWorkspace {
     this.app = app;
     this.root = root;
     this.doc = newLaserDoc();
-    this.machine = { ...DEFAULT_MACHINE, ...(app.settings.laser || {}) };
+    this.machine = machineOf(app.settings.laser || {});
+    this.overlay = null; // camera picture of the bed, drawn under the design
+    this.subIndex = 0;
     this.sel = [];
     this.tool = 'select';
     this.view = { scale: 1.6, ox: 60, oy: 40 };
@@ -170,6 +174,10 @@ export class LaserWorkspace {
         { label: 'Select everything on this layer', onClick: () => this.selectLayer() },
         { label: 'Cut order…', onClick: () => tools.cutOrderDialog(this) },
         'sep',
+        { label: 'Text on path', onClick: () => extras.textOnPath(this) },
+        { label: 'Mask image with shape', onClick: () => extras.maskImage(this) },
+        { label: 'Remove image mask', onClick: () => extras.unmaskImage(this) },
+        'sep',
         { label: 'Grid array…', onClick: () => tools.gridArrayDialog(this) },
         { label: 'Circular array…', onClick: () => tools.circularArrayDialog(this) },
         'sep',
@@ -178,6 +186,9 @@ export class LaserWorkspace {
       menuBtn('Create', 'plus', () => [
         { label: 'Depth map from STL or image…', onClick: () => depthMapStudio(this) },
         { label: 'Box maker (finger joints)…', onClick: () => boxMakerDialog(this) },
+        { label: 'Variable text (serial numbers, dates, lists)…', onClick: () => extras.variableTextDialog(this) },
+        { label: 'Print and cut (align to a printed sheet)…', onClick: () => extras.printCutDialog(this) },
+        { label: 'Camera overlay…', onClick: () => extras.cameraDialog(this) },
         { label: 'QR code…', onClick: () => tools.qrDialog(this) },
         { label: 'Material test…', onClick: () => tools.materialTestDialog(this) },
         { label: 'Interval test…', onClick: () => tools.intervalTestDialog(this) },
@@ -306,6 +317,7 @@ export class LaserWorkspace {
   }
 
   refresh() {
+    setTextVariables(this.doc.variables || null);
     if (!this.active) return;
     this._renderProps();
     this._renderLayers();
@@ -333,6 +345,7 @@ export class LaserWorkspace {
     const bw = m.bedW * v.scale, bh = m.bedH * v.scale;
     ctx.fillStyle = C.bed;
     ctx.fillRect(bx, by, bw, bh);
+    if (this.overlay) { ctx.globalAlpha = this.overlay.opacity; ctx.drawImage(this.overlay.canvas, bx, by, bw, bh); ctx.globalAlpha = 1; }
     // grid
     if (m.showGrid !== false) {
       const step = v.scale >= 6 ? 1 : v.scale >= 1.2 ? 10 : v.scale >= 0.25 ? 50 : 100;
@@ -393,6 +406,11 @@ export class LaserWorkspace {
       ctx.save();
       ctx.transform(v.scale, 0, 0, v.scale, v.ox, v.oy);
       ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+      if (Array.isArray(s.mask) && s.mask.length) {
+        ctx.beginPath();
+        for (const poly of s.mask) { poly.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]))); ctx.closePath(); }
+        ctx.clip('evenodd');
+      }
       if (img) { ctx.globalAlpha = 0.92; ctx.drawImage(img, 0, 0, s.w, s.h); }
       ctx.restore();
     }
@@ -429,7 +447,18 @@ export class LaserWorkspace {
     }));
   }
 
+  /** A small dot where a hand-picked cut start is, on selected shapes. */
+  _drawCutStarts(ctx) {
+    for (const s of this.selected()) {
+      if (!s.cutStart || s.type === 'group') continue;
+      const p = this.toScreen(apply(s.m, s.cutStart));
+      ctx.fillStyle = '#2f7de1'; ctx.beginPath(); ctx.arc(p[0], p[1], 4.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+  }
+
   _drawTransient(ctx, C) {
+    this._drawCutStarts(ctx);
     const d = this.drag;
     ctx.lineWidth = 1.2; ctx.strokeStyle = C.sel;
     if (d && d.kind === 'marquee' && d.cur) {
@@ -1089,7 +1118,12 @@ export class LaserWorkspace {
     clear(ed);
     const li = this.selectedLayer;
     if (!order.includes(li)) return;
-    const L = layerOf(this.doc, li);
+    const baseLayer = layerOf(this.doc, li);
+    if (!Array.isArray(baseLayer.subs)) baseLayer.subs = [];
+    if (this._subFor !== li) { this._subFor = li; this.subIndex = 0; }
+    if (this.subIndex > baseLayer.subs.length) this.subIndex = 0;
+    // sub-layers are extra operations on the same shapes; the editor below edits whichever is picked
+    const L = this.subIndex ? baseLayer.subs[this.subIndex - 1] : baseLayer;
     const perMin = this.machine.speedUnits === 'mm/min';
     const num = (label, get, set, step = 1, min = 0, max = 1e6, suffix = '') => {
       const input = h('input', { class: 'input', type: 'number', step, min, max, value: get() });
@@ -1102,6 +1136,19 @@ export class LaserWorkspace {
     mode.addEventListener('change', () => { L.mode = mode.value; this.commit(); });
     ed.append(h('div', { class: 'le-title' }, h('span', { class: 'll-chip', style: { background: LAYER_COLORS[li] } }, LAYER_NAMES[li]), `Layer ${LAYER_NAMES[li]} settings`));
     if (isToolLayer(li)) { ed.append(h('div', { class: 'insp-note' }, 'Guide layers are for layout help and are never sent to the laser.')); return; }
+    {
+      const pick = (i, label, tip) => button({ label, cls: 'btn-outline' + (this.subIndex === i ? ' active' : ''), title: tip, onClick: () => { this.subIndex = i; this._renderLayers(); } });
+      const row = h('div', { class: 'le-row le-subs' }, h('span', {}, 'Operation'), pick(0, '1', 'The layer\'s main settings'),
+        ...baseLayer.subs.map((_s, i) => pick(i + 1, String(i + 2), 'Sub-layer: runs after the ones before it, on the same shapes')));
+      if (baseLayer.subs.length < 3) row.append(button({ label: '+', cls: 'btn-outline', title: 'Add a sub-layer: a second operation on this layer\'s shapes (for example engrave, then cut)', onClick: () => {
+        const { subs, index, show, ...rest } = baseLayer; void subs; void index; void show;
+        baseLayer.subs.push(JSON.parse(JSON.stringify(rest)));
+        this.subIndex = baseLayer.subs.length;
+        this.commit();
+      } }));
+      if (this.subIndex) row.append(button({ label: 'Remove', cls: 'btn-ghost', title: 'Remove this sub-layer', onClick: () => { baseLayer.subs.splice(this.subIndex - 1, 1); this.subIndex = 0; this.commit(); } }));
+      ed.append(row);
+    }
     ed.append(this._materialRow(L));
     ed.append(h('label', { class: 'le-row' }, h('span', {}, 'Mode'), mode),
       num('Speed', () => (perMin ? Math.round(L.speed * 60) : L.speed), (v) => { L.speed = Math.max(0.1, perMin ? v / 60 : v); }, perMin ? 10 : 1, 0.1, 1e6, perMin ? 'mm/min' : 'mm/s'),
@@ -1130,6 +1177,9 @@ export class LaserWorkspace {
         check('Perforate (cut / skip)', 'perforate'));
       if (L.perforate) ed.append(num('Cut length', () => L.perfCut, (v) => { L.perfCut = v; }, 0.5, 0.1, 500, 'mm'), num('Skip length', () => L.perfSkip, (v) => { L.perfSkip = v; }, 0.5, 0.1, 500, 'mm'));
     }
+    if (this.machine.zEnabled && this.machine.flavor !== 'plasma') ed.append(
+      num('Z offset', () => L.zOffset || 0, (v) => { L.zOffset = v; }, 0.1, -100, 100, 'mm'),
+      num('Z step per pass', () => L.zStep || 0, (v) => { L.zStep = v; }, 0.1, 0, 50, 'mm'));
     ed.append(check('Air assist', 'air'));
     if (hasImage) {
       const im = h('select', { class: 'select' }, tools.IMAGE_MODES.map(([v, n]) => h('option', { value: v }, n)));
@@ -1313,6 +1363,7 @@ export class LaserWorkspace {
     if (plan.warnings.length && !(await tools.confirmStart(plan.warnings))) return;
     if (!this._needDevice()) return;
     const gcode = toGcode(plan, this.doc, this.machine);
+    extras.advanceVariables(this);
     this.log(`Starting job: ${plan.stats.count} moves, about ${formatTime(plan.stats.time)}`, 'info');
     const bar = this.progress.firstChild;
     const res = await this.device.run(gcode, (job) => { bar.style.width = `${(job.sent / job.total) * 100}%`; });
@@ -1339,7 +1390,7 @@ export class LaserWorkspace {
     if (!plan.bounds) return toast('There is nothing to output. Check that layers have Output switched on.', 'warn');
     for (const w of plan.warnings) toast(w, 'warn', 5000);
     const path = await platform.saveDialog({ title: 'Save G-code', defaultName: `${this.app._fileBase()}.gcode`, filters: [{ name: 'G-code', extensions: ['gcode', 'nc', 'gc'] }], data: toGcode(plan, this.doc, this.machine) });
-    if (path) toast('Saved G-code to ' + path);
+    if (path) { toast('Saved G-code to ' + path); extras.advanceVariables(this); }
   }
 
   async runGcodeFile() {
@@ -1373,7 +1424,13 @@ export class LaserWorkspace {
     const raw = this.toBed(e), s = this.hit(raw);
     if (s && !this.sel.includes(s.id)) this.select([s.id]);
     const n = this.sel.length;
+    const one = n === 1 ? this.selected()[0] : null;
+    const cuttable = one && one.type !== 'image' && one.type !== 'group' && !one.locked;
     popupMenu([
+      { label: 'Start the cut here', disabled: !cuttable, onClick: () => { one.cutStart = apply(invert(one.m), raw); this.commit(); toast('The cut on this shape will start at the corner nearest that point'); } },
+      { label: one && one.cutReverse ? 'Cut direction: reversed (click to restore)' : 'Reverse cut direction', disabled: !cuttable, onClick: () => { one.cutReverse = !one.cutReverse; this.commit(); } },
+      { label: 'Clear start point', disabled: !(cuttable && one.cutStart), onClick: () => { delete one.cutStart; this.commit(); } },
+      'sep',
       { label: 'Copy', shortcut: 'Ctrl+C', disabled: !n, onClick: () => this.copy() }, { label: 'Cut', shortcut: 'Ctrl+X', disabled: !n, onClick: () => this.cut() },
       { label: 'Paste', shortcut: 'Ctrl+V', disabled: !this.clipboard, onClick: () => this.paste() }, { label: 'Duplicate', shortcut: 'Ctrl+D', disabled: !n, onClick: () => this.duplicate() },
       { label: 'Delete', shortcut: 'Del', disabled: !n, onClick: () => this.remove() }, 'sep',

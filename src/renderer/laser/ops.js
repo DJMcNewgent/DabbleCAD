@@ -59,7 +59,7 @@ export function offsetPolys(polys, delta, style = 'round') {
 // ---------------------------------------------------------------- images
 export const IMAGE_MODES = [
   ['threshold', 'Threshold'], ['ordered', 'Ordered dither'], ['floyd', 'Floyd-Steinberg'], ['jarvis', 'Jarvis'],
-  ['stucki', 'Stucki'], ['atkinson', 'Atkinson'], ['grayscale', 'Grayscale'],
+  ['stucki', 'Stucki'], ['atkinson', 'Atkinson'], ['halftone', 'Halftone (dots)'], ['newsprint', 'Newsprint (coarse dots)'], ['grayscale', 'Grayscale'],
 ];
 
 const KERNELS = {
@@ -75,7 +75,7 @@ const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
  * Transparent pixels never burn.
  */
 export function processImage(imageData, opts = {}) {
-  const { mode = 'floyd', negative = false, brightness = 0, contrast = 0, gamma = 1 } = opts;
+  const { mode = 'floyd', negative = false, brightness = 0, contrast = 0, gamma = 1, pxPerMM = 10 } = opts;
   const { data, width: w, height: h } = imageData;
   const lum = new Float32Array(w * h);
   const alpha = new Uint8Array(w * h);
@@ -93,6 +93,18 @@ export function processImage(imageData, opts = {}) {
   const out = new Uint8Array(w * h);
   if (mode === 'grayscale') {
     for (let p = 0; p < w * h; p++) out[p] = alpha[p] ? Math.round(255 - lum[p]) : 0;
+  } else if (mode === 'halftone' || mode === 'newsprint') {
+    // round dots on a grid turned 45 degrees; a darker pixel gets a bigger dot
+    const cell = Math.max(3, (mode === 'newsprint' ? 2 : 1) * pxPerMM), k = Math.SQRT1_2;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      if (!alpha[p]) { out[p] = 0; continue; }
+      const u = ((x + y) * k) / cell, v = ((y - x) * k) / cell;
+      const fu = u - Math.floor(u) - 0.5, fv = v - Math.floor(v) - 0.5;
+      const dark = 1 - lum[p] / 255;
+      // a smooth "spot function": the dot covers the same share of its cell as the pixel is dark
+      out[p] = dark >= 1 || (Math.cos(2 * Math.PI * fu) + Math.cos(2 * Math.PI * fv)) / 4 + 0.5 > 1 - dark ? 255 : 0;
+    }
   } else if (mode === 'threshold') {
     for (let p = 0; p < w * h; p++) out[p] = alpha[p] && lum[p] < 128 ? 255 : 0;
   } else if (mode === 'ordered') {

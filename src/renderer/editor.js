@@ -135,7 +135,38 @@ export class Editor extends Emitter {
       if (solid && solid !== mesh.material) solid.dispose();
       this.meshes.delete(id);
     }
+    this._syncEditPreview();
     this.viewport.requestRender();
+  }
+
+  /**
+   * While a group is open for editing, keep drawing what it will look like when it is
+   * closed again (holes cut, parts joined). The parts themselves are shown as faint
+   * ghosts so they can still be picked and moved.
+   */
+  _syncEditPreview() {
+    const e = this.editing;
+    const members = e ? this.doc.nodes.filter((n) => !e.outside.has(n.id) && !n.hidden) : [];
+    if (!e || members.length < 2 || !members.some((n) => !n.hole)) {
+      if (this.previewMesh) { this.viewport.objects.remove(this.previewMesh); this.previewMesh.material.dispose(); this.previewMesh = null; }
+      return;
+    }
+    const node = makeGroup(members.map((n) => cloneNode(n)), e.mode);
+    const geo = getGeometry(node);
+    let mesh = this.previewMesh;
+    if (!mesh) {
+      mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.03 }));
+      mesh.matrixAutoUpdate = false;
+      mesh.raycast = () => {}; // clicks go to the parts, not the preview
+      mesh.castShadow = true;
+      this.previewMesh = mesh;
+      this.viewport.objects.add(mesh);
+    }
+    mesh.geometry = geo;
+    const vc = !!e.multicolor && !!geo.attributes.color;
+    if (mesh.material.vertexColors !== vc) { mesh.material.vertexColors = vc; mesh.material.needsUpdate = true; }
+    mesh.material.color.set(vc ? '#ffffff' : e.color);
+    mesh.updateMatrixWorld(true);
   }
 
   _syncMesh(node) {
@@ -165,9 +196,11 @@ export class Editor extends Emitter {
       const vc = node.type === 'group' && node.multicolor && !!geo.attributes.color;
       if (solid.vertexColors !== vc) { solid.vertexColors = vc; solid.needsUpdate = true; }
       solid.color.set(vc ? '#ffffff' : node.color);
-      const tr = !!node.transparent;
+      // parts of a group that is open for editing are ghosts: the live result is drawn instead
+      const ghost = !!this.editing && !this.editing.outside.has(node.id);
+      const tr = !!node.transparent || ghost;
       if (solid.transparent !== tr) { solid.transparent = tr; solid.needsUpdate = true; }
-      solid.opacity = tr ? 0.45 : 1;
+      solid.opacity = ghost ? 0.14 : tr ? 0.45 : 1;
       solid.depthWrite = !tr;
       solid.side = mesh.matrix.determinant() < 0 || tr ? THREE.DoubleSide : THREE.FrontSide;
       mesh.castShadow = !tr;
@@ -208,6 +241,7 @@ export class Editor extends Emitter {
       mesh.matrix.fromArray(n.matrix);
       mesh.updateMatrixWorld(true);
     }
+    if (this.editing) this._syncEditPreview();
     this.viewport.requestRender();
     this.emit('transform');
   }
