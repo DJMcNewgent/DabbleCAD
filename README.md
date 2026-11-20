@@ -167,6 +167,7 @@ storage instead and are separate from the desktop library.
 - Edit the parts of a group without ungrouping: double-click it, change things, press Done.
 - Round or bevel the outside edges of any shape or group.
 - Resize, rotate, lift, mirror, align, and type exact dimensions.
+- Drag a box on empty space to select every shape it touches; Shift adds to the selection.
 - Workplanes on faces, a ruler, notes, patterns, duplicate-and-repeat, and Cruise.
 - Freehand Scribble shapes with extrusion.
 - **Sketch:** draw rectangles, circles, and polygons with typed sizes and cut-outs,

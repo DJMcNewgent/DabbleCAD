@@ -490,22 +490,59 @@ export class Editor extends Emitter {
       box.remove();
       const x0 = Math.min(sx, ev.clientX) - rect.left, x1 = Math.max(sx, ev.clientX) - rect.left;
       const y0 = Math.min(sy, ev.clientY) - rect.top, y1 = Math.max(sy, ev.clientY) - rect.top;
-      const ids = [];
-      const v = new THREE.Vector3(), out = {};
-      for (const n of this.doc.nodes) {
-        if (n.hidden) continue;
-        const b = this.bounds([n], true);
-        if (b.isEmpty()) continue;
-        let inside = true;
-        for (let i = 0; i < 8 && inside; i++) {
-          v.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z);
-          this.viewport.project(v, out);
-          if (out.behind || out.x < x0 || out.x > x1 || out.y < y0 || out.y > y1) inside = false;
-        }
-        if (inside) ids.push(n.id);
-      }
+      // anything the box touches is selected; a shape does not have to be fully enclosed
+      const ids = this.doc.nodes.filter((n) => !n.hidden && this.touchesScreenRect(n, x0, y0, x1, y1)).map((n) => n.id);
       this.select(ids, { add: e.shiftKey });
     });
+  }
+
+  /** Does any part of the node, as drawn on screen, fall inside or cross the rectangle (canvas pixels)? */
+  touchesScreenRect(node, x0, y0, x1, y1) {
+    const b = this.bounds([node], true);
+    if (b.isEmpty()) return false;
+    const v = new THREE.Vector3(), out = {};
+    // quick reject: the projected bounding box misses the rectangle altogether
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity, visible = 0;
+    for (let i = 0; i < 8; i++) {
+      v.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z);
+      this.viewport.project(v, out);
+      if (out.behind) continue;
+      visible += 1;
+      bx0 = Math.min(bx0, out.x); bx1 = Math.max(bx1, out.x); by0 = Math.min(by0, out.y); by1 = Math.max(by1, out.y);
+    }
+    if (!visible || bx1 < x0 || bx0 > x1 || by1 < y0 || by0 > y1) return false;
+    const geo = getGeometry(node), pos = geo.attributes.position, idx = geo.index;
+    const m = mat4(node.matrix);
+    const n = pos.count;
+    const sx = new Float32Array(n), sy = new Float32Array(n), ok = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m);
+      this.viewport.project(v, out);
+      sx[i] = out.x; sy[i] = out.y; ok[i] = out.behind ? 0 : 1;
+      if (ok[i] && out.x >= x0 && out.x <= x1 && out.y >= y0 && out.y <= y1) return true; // a corner of the shape is in the box
+    }
+    // no vertex inside: an edge may still cross the box, or the box may sit wholly inside a face
+    const crosses = (ax, ay, bx, by) => {
+      let t0 = 0, t1 = 1;
+      const dx = bx - ax, dy = by - ay;
+      for (const [p, q] of [[-dx, ax - x0], [dx, x1 - ax], [-dy, ay - y0], [dy, y1 - ay]]) {
+        if (p === 0) { if (q < 0) return false; continue; }
+        const r = q / p;
+        if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+      }
+      return true;
+    };
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const side = (ax, ay, bx, by) => (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    const count = idx ? idx.count : n;
+    for (let i = 0; i < count; i += 3) {
+      const a = idx ? idx.getX(i) : i, bb = idx ? idx.getX(i + 1) : i + 1, c = idx ? idx.getX(i + 2) : i + 2;
+      if (!ok[a] || !ok[bb] || !ok[c]) continue;
+      if (crosses(sx[a], sy[a], sx[bb], sy[bb]) || crosses(sx[bb], sy[bb], sx[c], sy[c]) || crosses(sx[c], sy[c], sx[a], sy[a])) return true;
+      const d1 = side(sx[a], sy[a], sx[bb], sy[bb]), d2 = side(sx[bb], sy[bb], sx[c], sy[c]), d3 = side(sx[c], sy[c], sx[a], sy[a]);
+      if ((d1 >= 0 && d2 >= 0 && d3 >= 0) || (d1 <= 0 && d2 <= 0 && d3 <= 0)) return true;
+    }
+    return false;
   }
 
   // ---------------------------------------------------------------- adding shapes

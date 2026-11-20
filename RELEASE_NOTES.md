@@ -23,6 +23,12 @@ Leads show in blue in the job preview. All of these are saved with material pres
 - **Select everything on this layer**, and a **Cut order** dialog (inner shapes first,
   reduce travel, finish one layer before the next).
 
+## 3D design
+
+- **Box-select picks up whatever it touches.** Dragging a selection box used to select only
+  shapes that were completely inside it. Now anything the box touches is selected, which
+  makes it much easier to grab a hole together with the solid it cuts.
+
 ## Not verified
 
 The plasma and lead-in output was checked by replaying the generated G-code in

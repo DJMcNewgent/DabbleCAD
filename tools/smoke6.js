@@ -89,6 +89,23 @@ check('scribble', ed.doc.nodes.length === before + 1 && ed.selectedNodes()[0].ki
 const sb = ed.bounds(ed.selectedNodes()); out.scribbleSize = [sb.max.x - sb.min.x, sb.max.y - sb.min.y, sb.max.z - sb.min.z].map((v) => +v.toFixed(1));
 ed.clearSelection(); vp.home(); await wait(500);
 await shot('s-final');
+// box-select picks up whatever it touches; shapes do not have to be fully enclosed
+{
+  const mA = add('box', 150, -150), mB = add('box', 190, -150);
+  ed.select([mA.id, mB.id]); ed.fitView(); await wait(500); ed.clearSelection(); vp.renderNow();
+  const r = rect(); const loc = (p) => [p.clientX - r.left, p.clientY - r.top];
+  const cA = loc(scr(150, -150, 10)), cB = loc(scr(190, -150, 10)), gap = loc(scr(170, -150, 0));
+  const hit = (n, a, b, pad = 0) => ed.touchesScreenRect(n, Math.min(a[0], b[0]) - pad, Math.min(a[1], b[1]) - pad, Math.max(a[0], b[0]) + pad, Math.max(a[1], b[1]) + pad);
+  check('touch-crossing', hit(mA, cA, cB) && hit(mB, cA, cB));
+  check('touch-inside-face', hit(mA, cA, cA, 2) && !hit(mB, cA, cA, 2));
+  check('touch-miss', !hit(mA, gap, gap, 2) && !hit(mB, gap, gap, 2));
+  // a real drag that starts on empty ground and ends in the middle of the second box
+  const start = scr(132, -178, 0), end = scr(190, -150, 10);
+  fire(vp.canvas, 'pointerdown', start); fire(vp.canvas, 'pointermove', scr(160, -160, 0)); fire(vp.canvas, 'pointermove', end); fire(vp.canvas, 'pointerup', end);
+  out.touchSelect = [ed.selection.has(mA.id), ed.selection.has(mB.id), ed.selection.size];
+  check('touch-drag-selects-both', ed.selection.has(mA.id) && ed.selection.has(mB.id), out.touchSelect);
+  ed.select([mA.id, mB.id]); ed.deleteSelection();
+}
 // update dialog: reachable from Settings, and it fails politely when no check is possible
 {
   document.querySelector('.btn[title="Settings"]').click(); await wait(250);
