@@ -1405,7 +1405,7 @@ export class LaserWorkspace {
   }
 
   async importDialog() {
-    const files = await platform.openDialog({ title: 'Import', multi: true, filters: [{ name: 'Vector and image files', extensions: ['svg', 'dxf', 'png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'] }] });
+    const files = await platform.openDialog({ title: 'Import', multi: true, filters: [{ name: 'Vector and image files', extensions: ['svg', 'dxf', 'lbrn2', 'lbrn', 'png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'] }] });
     if (files.length) tools.importFiles(this, files);
   }
 

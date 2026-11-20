@@ -10,7 +10,7 @@ import {
   makeRect, makeText, makeImage, makeGroup, pathFromPolys,
 } from './model.js';
 import { booleanOp, offsetPolys, maskFromImage, IMAGE_MODES } from './ops.js';
-import { importSVG, importDXF, exportSVG, exportDXF } from './io.js';
+import { importSVG, importDXF, importLBRN, exportSVG, exportDXF } from './io.js';
 import { toMachine, FLAVORS, formatTime, machineOf, rotaryScale } from './gcode.js';
 
 export { IMAGE_MODES };
@@ -51,6 +51,14 @@ export async function importFiles(ws, files) {
     try {
       if (ext === 'svg') { const shapes = importSVG(new TextDecoder().decode(f.data)); if (!shapes.length) throw new Error('no shapes found'); const g = shapes.length > 1 ? [makeGroup(shapes)] : shapes; placeNew(ws, g); added.push(...g); }
       else if (ext === 'dxf') { const shapes = importDXF(new TextDecoder().decode(f.data)); if (!shapes.length) throw new Error('no supported entities found'); const g = shapes.length > 1 ? [makeGroup(shapes)] : shapes; placeNew(ws, g); added.push(...g); }
+      else if (ext === 'lbrn' || ext === 'lbrn2') {
+        const res = importLBRN(new TextDecoder().decode(f.data), ws.machine);
+        if (!res.shapes.length) throw new Error('no shapes found');
+        // bring the project's layer settings along with its shapes
+        for (const [index, set] of Object.entries(res.layers)) Object.assign(layerOf(ws.doc, +index), set);
+        added.push(...res.shapes);
+        for (const note of res.notes) toast(note, 'info', 6000);
+      }
       else if (['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'].includes(ext)) {
         const src = bufferToDataUrl(f.data, ext === 'jpg' ? 'image/jpeg' : 'image/' + ext);
         const img = await loadImage(src);

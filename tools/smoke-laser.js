@@ -358,5 +358,48 @@ document.querySelector('.btn[data-mode="laser"]').click(); await wait(200);
   if (plus) { plus.click(); await wait(60); check('sub-layer-added', M.layerOf(ws.doc, 17).subs.length === 1 && ws.subIndex === 1 && !!document.querySelector('.le-subs .btn-ghost'), M.layerOf(ws.doc, 17).subs.length); M.layerOf(ws.doc, 17).subs = []; ws.subIndex = 0; }
   M.setTextVariables(null); ws.doc.variables = null; ws.select([]);
 }
+// LightBurn project import (structure taken from real .lbrn2 and .lbrn files)
+{
+  const M = L.model;
+  const lb2 = `<?xml version="1.0" encoding="UTF-8"?>
+<LightBurnProject AppVersion="1.3.01" FormatVersion="1" MaterialHeight="0" MirrorX="False" MirrorY="False">
+  <CutSetting type="Cut"><index Value="0"/><name Value="Outline"/><maxPower Value="80"/><minPower Value="10"/><speed Value="12"/><numPasses Value="2"/><kerf Value="0.1"/><runBlower Value="1"/></CutSetting>
+  <CutSetting type="Scan"><index Value="3"/><name Value="Engrave"/><maxPower Value="30"/><speed Value="150"/><interval Value="0.08"/><crossHatch Value="1"/><bidir Value="0"/></CutSetting>
+  <Shape Type="Rect" CutIndex="0" W="100" H="50" Cr="4"><XForm>1 0 0 1 100 75</XForm></Shape>
+  <Shape Type="Group"><XForm>1 0 0 1 10 20</XForm><Children>
+    <Shape Type="Ellipse" CutIndex="3" Rx="5" Ry="5"><XForm>1 0 0 1 60 60</XForm></Shape>
+    <Shape Type="Path" CutIndex="0" VertID="2" PrimID="1"><XForm>2 0 0 2 0 0</XForm>
+      <VertList>V10 5c0x12c0y5c1x8c1y5V15 10c0x15c0y12c1x15c1y8V10 15c0x8c0y15c1x12c1y15V5 10c0x5c0y8c1x5c1y12</VertList>
+      <PrimList>B0 1B1 2B2 3B3 0</PrimList></Shape>
+    <Shape Type="Path" CutIndex="3" VertID="2" PrimID="1"><XForm>1 0 0 1 100 0</XForm></Shape>
+  </Children></Shape>
+  <Shape Type="Path" CutIndex="0"><XForm>1 0 0 1 0 0</XForm><VertList>V200 10V220 10V220 30V200 30</VertList><PrimList>LineClosed</PrimList></Shape>
+  <Shape Type="Path" CutIndex="0"><XForm>1 0 0 1 0 0</XForm><VertList>V300 10V320 10V320 30</VertList><PrimList>L0 1L1 2</PrimList></Shape>
+  <Shape Type="Hatch" CutIndex="0"><XForm>1 0 0 1 0 0</XForm></Shape>
+</LightBurnProject>`;
+  const r = L.io.importLBRN(lb2, ws.machine);
+  const kinds = {}; M.walkShapes(r.shapes, (s) => { kinds[s.type] = (kinds[s.type] || 0) + 1; });
+  check('lbrn-shapes', r.shapes.length === 4 && kinds.rect === 1 && kinds.ellipse === 1 && kinds.path === 4 && kinds.group === 1, kinds);
+  // Y is flipped onto the bed: a rectangle centred at (100, 75) from the bottom sits 75 mm above the bed's lower edge
+  const rb = M.boundsOf([r.shapes[0]]);
+  check('lbrn-rect-place', near(rb.x0, 50) && near(rb.w, 100) && near(rb.h, 50) && near(rb.cy, ws.machine.bedH - 75), [rb.x0, rb.cy, rb.w, rb.h]);
+  const grp = r.shapes[1], circ = grp.children[1], copy = grp.children[2];
+  const cb = M.boundsOf([{ ...grp, children: [circ] }]), kb = M.boundsOf([{ ...grp, children: [copy] }]);
+  // four curves make a circle of radius 5 at (10, 10), drawn at twice the size inside a group moved by (10, 20)
+  check('lbrn-curves', circ.subs.length === 1 && circ.subs[0].closed && circ.subs[0].nodes.length === 4 && circ.subs[0].nodes.every((n) => n.ox != null && n.ix != null) && near(cb.w, 20, 0.2) && near(cb.cx, 30, 0.1) && near(cb.cy, ws.machine.bedH - 40, 0.1), [cb.w, cb.cx, cb.cy]);
+  check('lbrn-shared-points', copy.layer === 3 && copy.subs[0].nodes.length === 4 && near(kb.w, 10, 0.1) && near(kb.cx, 120, 0.1), [kb.w, kb.cx]);
+  check('lbrn-line-paths', r.shapes[2].subs[0].closed && r.shapes[2].subs[0].nodes.length === 4 && !r.shapes[3].subs[0].closed && r.shapes[3].subs[0].nodes.length === 3);
+  check('lbrn-layers', r.layers[0].mode === 'line' && r.layers[0].speed === 12 && r.layers[0].powerMax === 80 && r.layers[0].passes === 2 && r.layers[0].air === true && r.layers[3].mode === 'fill' && r.layers[3].interval === 0.08 && r.layers[3].crosshatch === true && r.layers[3].bidirectional === false, r.layers);
+  check('lbrn-notes', r.notes.some((n) => n.includes('Hatch')), r.notes);
+  const v1 = `<?xml version="1.0"?><LightBurnProject MaterialHeight="0"><CutSetting type="Cut"><index Value="2"/><speed Value="10"/><maxPower Value="100"/></CutSetting>
+  <Shape Type="Path" CutIndex="2"><XForm>1 0 0 1 50 50</XForm><V vx="0" vy="0" c0x="1" c0y="0" c1x="1" c1y="0" sm="0"/><V vx="10" vy="0" c0x="1" c0y="0" c1x="1" c1y="0" sm="0"/><V vx="5" vy="8" c0x="1" c0y="0" c1x="1" c1y="0" sm="0"/><P T="L" p0="0" p1="1"/><P T="L" p0="1" p1="2"/><P T="L" p0="2" p1="0"/></Shape></LightBurnProject>`;
+  const r1 = L.io.importLBRN(v1, ws.machine), tb = M.boundsOf(r1.shapes);
+  check('lbrn-v1', r1.shapes.length === 1 && r1.shapes[0].layer === 2 && r1.shapes[0].subs[0].closed && r1.shapes[0].subs[0].nodes.length === 3 && r1.shapes[0].subs[0].nodes.every((n) => n.ox == null) && near(tb.w, 10) && near(tb.h, 8) && near(tb.x0, 50), tb && [tb.w, tb.h, tb.x0]);
+  let threw = false; try { L.io.importLBRN('<svg/>', ws.machine); } catch { threw = true; }
+  check('lbrn-rejects-other-xml', threw);
+  const n0 = ws.doc.shapes.length;
+  await L.tools.importFiles(ws, [{ name: 'box.lbrn2', data: new TextEncoder().encode(lb2).buffer }]); await wait(150);
+  check('lbrn-import-file', ws.doc.shapes.length === n0 + 4 && M.layerOf(ws.doc, 3).mode === 'fill' && M.layerOf(ws.doc, 3).speed === 150, ws.doc.shapes.length - n0);
+}
 out.fails = fails;
 return out;

@@ -200,7 +200,18 @@ same design as your 3D work.
   perforation (cut / skip).
 - **Plasma cutting:** choose the *Plasma cutter* controller under **Device** to get
   torch-on / torch-off G-code (`M3`, pierce dwell, cut, `M5`) with no power words.
-  There is no torch height control or touch-off; set height on the machine.
+  With a Z axis it also handles torch height: optional touch-off before each pierce,
+  pierce height, cut height, safe travel height, and commands to switch your
+  controller's height control on and off.
+- **Z moves for lasers:** focus offset and step-down per pass on machines with a Z axis.
+- **Sub-layers:** up to three extra operations on one layer's shapes (engrave, then cut).
+- **Start point and cut direction** chosen by hand from the right-click menu.
+- **Variable text:** serial numbers, the date and time, and rows from a CSV list.
+- **Text on a path**, **halftone and newsprint** image modes, and **image masks**.
+- **Print and cut:** line a job up with a printed sheet from two registration marks.
+- **Camera overlay:** show a photo of the bed under your design to place artwork.
+- **Rotary attachment** settings for roller and chuck rotaries.
+- **Opens LightBurn projects** (`.lbrn2`, `.lbrn`): shapes, groups, curves, and layer settings.
 - Auto-join open paths, delete duplicates, select by layer, and cut-order options.
 - Weld, subtract, intersect, exclude, offset, arrays, trace, align, distribute,
   flip, and rotate.
@@ -290,9 +301,15 @@ DabbleCAD is an early project, not a claim of production certification.
 - Estimates and suggested laser settings are not material-specific calibration.
 - Plasma output has been checked as G-code only, never on a plasma table. Run it in
   the air first, and confirm how your controller treats `M3`, `M5`, and `G4`.
-- Compared with dedicated laser software, the laser workspace has no camera, rotary
-  setup, print-and-cut, variable text, text on a path, sub-layers, Z moves, or
-  support for DSP (Ruida-type) and galvo controllers.
+- Torch height, Z moves, rotary scaling, and print-and-cut alignment are arithmetic
+  checked in software only. Automatic height control while cutting is done by your
+  controller or THC unit; DabbleCAD only switches it on and off.
+- The camera overlay does not correct lens distortion, so treat it as a placement
+  aid and confirm with a test mark.
+- Imported LightBurn text is rebuilt with a DabbleCAD font and only approximates the
+  original. Linked pictures and a few rarely used object types are skipped.
+- DSP (Ruida-type) and galvo controllers are not supported: only G-code machines
+  (GRBL, Marlin, Smoothieware). CO2 lasers with a DSP controller cannot be driven.
 - Real laser hardware, native close dialogs, installation, and operating-system
   trust prompts need manual testing in addition to automated tests.
 - Mac release builds must pass the macOS CI jobs and manual launch checks before

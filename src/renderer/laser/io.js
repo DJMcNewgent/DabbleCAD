@@ -247,3 +247,152 @@ export function exportDXF(doc, machine) {
 }
 
 export { scaling };
+
+// ---------------------------------------------------------------- LightBurn projects (.lbrn / .lbrn2)
+const NUM = '-?\\d*\\.?\\d+(?:[eE][-+]?\\d+)?';
+
+/** "V1 2c0x3c0y4c1x5c1y6V..." -> [{ x, y, c0: [x, y] | null, c1: [x, y] | null }] */
+function lbrnVerts(text) {
+  const out = [];
+  const re = new RegExp(`V(${NUM}) (${NUM})((?:c[01][xy]${NUM})*)`, 'g');
+  let m;
+  while ((m = re.exec(text))) {
+    const v = { x: +m[1], y: +m[2], c0: null, c1: null }, parts = {};
+    const cre = new RegExp(`c([01])([xy])(${NUM})`, 'g');
+    let c;
+    while ((c = cre.exec(m[3]))) parts[c[1] + c[2]] = +c[3];
+    if ('0x' in parts && '0y' in parts) v.c0 = [parts['0x'], parts['0y']];
+    if ('1x' in parts && '1y' in parts) v.c1 = [parts['1x'], parts['1y']];
+    out.push(v);
+  }
+  return out;
+}
+
+/** Chain line / curve primitives into sub-paths in our node format. */
+function lbrnSubs(verts, prims) {
+  const subs = [];
+  const node = (i) => ({ x: verts[i].x, y: verts[i].y });
+  let cur = null;
+  const finish = () => { if (cur && cur.nodes.length > 1) subs.push({ closed: cur.closed, nodes: cur.nodes }); cur = null; };
+  for (const [type, a, b] of prims) {
+    if (!verts[a] || !verts[b]) continue;
+    if (!cur || cur.last !== a) { finish(); cur = { nodes: [node(a)], start: a, last: a, closed: false }; }
+    const from = cur.nodes[cur.nodes.length - 1];
+    const closing = b === cur.start;
+    const to = closing ? cur.nodes[0] : node(b);
+    if (type === 'B') {
+      // c0 leaves a vertex, c1 arrives at it
+      if (verts[a].c0) { from.ox = verts[a].c0[0]; from.oy = verts[a].c0[1]; }
+      if (verts[b].c1) { to.ix = verts[b].c1[0]; to.iy = verts[b].c1[1]; }
+    }
+    if (closing) { cur.closed = true; finish(); } else { cur.nodes.push(to); cur.last = b; }
+  }
+  finish();
+  return subs;
+}
+
+/**
+ * Read a LightBurn project. Returns { shapes, layers: { index: settings }, notes: [] }.
+ * LightBurn's Y axis points up; shapes are flipped onto our bed (Y down) and kept at
+ * their positions when they fit the work area.
+ */
+export function importLBRN(xmlText, machine) {
+  const dom = new DOMParser().parseFromString(xmlText, 'application/xml');
+  const root = dom.documentElement;
+  if (!root || root.nodeName !== 'LightBurnProject') throw new Error('this is not a LightBurn project');
+  const notes = new Set();
+  const kids = (el, name) => [...el.children].filter((c) => c.nodeName === name);
+  const xform = (el) => { const x = kids(el, 'XForm')[0]; const n = x ? x.textContent.trim().split(/\s+/).map(Number) : []; return n.length === 6 && n.every(isFinite) ? n : [1, 0, 0, 1, 0, 0]; };
+  const num = (el, a, d = 0) => { const v = parseFloat(el.getAttribute(a)); return isFinite(v) ? v : d; };
+
+  // layer settings
+  const layers = {};
+  for (const cs of kids(root, 'CutSetting').concat(kids(root, 'CutSetting_Img'))) {
+    const get = (name, d) => { const e = kids(cs, name)[0]; const v = e ? parseFloat(e.getAttribute('Value')) : NaN; return isFinite(v) ? v : d; };
+    const index = get('index', -1);
+    if (index < 0 || index > 31) continue;
+    const type = (cs.getAttribute('type') || 'Cut').toLowerCase();
+    const set = { mode: type === 'scan' ? 'fill' : type === 'offset' ? 'offset' : 'line' };
+    const put = (key, name, f = (v) => v) => { const v = get(name, NaN); if (isFinite(v)) set[key] = f(v); };
+    put('speed', 'speed'); put('powerMax', 'maxPower'); put('powerMin', 'minPower'); put('passes', 'numPasses', (v) => Math.max(1, Math.round(v)));
+    put('interval', 'interval'); put('angle', 'angle'); put('kerf', 'kerf'); put('overscan', 'overscanPercent'); put('zOffset', 'zOffset'); put('zStep', 'zPerPass');
+    put('crosshatch', 'crossHatch', (v) => !!v); put('bidirectional', 'bidir', (v) => !!v); put('air', 'runBlower', (v) => !!v); put('output', 'doOutput', (v) => !!v); put('show', 'hide', (v) => !v);
+    put('pierce', 'startDelay', (v) => Math.round(v));
+    layers[index] = set;
+  }
+
+  const vertLists = new Map(), primLists = new Map();
+  const mulM = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+  let counter = 0;
+  const base = (type, layer, extra) => ({ id: 'LB' + Date.now().toString(36) + (counter++).toString(36), type, layer, m: [1, 0, 0, 1, 0, 0], ...extra });
+
+  function read(el) {
+    const type = el.getAttribute('Type');
+    const layer = Math.max(0, Math.min(31, Math.round(num(el, 'CutIndex', 0))));
+    const m = xform(el);
+    if (type === 'Group') {
+      const holder = kids(el, 'Children')[0];
+      const children = (holder ? kids(holder, 'Shape') : []).map(read).filter(Boolean);
+      return children.length ? base('group', children[0].layer, { children, m }) : null;
+    }
+    if (type === 'Rect') {
+      const w = num(el, 'W'), hh = num(el, 'H');
+      return w > 0 && hh > 0 ? base('rect', layer, { w, h: hh, r: num(el, 'Cr'), m: mulM(m, [1, 0, 0, 1, -w / 2, -hh / 2]) }) : null;
+    }
+    if (type === 'Ellipse') {
+      const rx = num(el, 'Rx'), ry = num(el, 'Ry');
+      return rx > 0 && ry > 0 ? base('ellipse', layer, { w: rx * 2, h: ry * 2, m: mulM(m, [1, 0, 0, 1, -rx, -ry]) }) : null;
+    }
+    if (type === 'Path') {
+      let verts, prims;
+      const vl = kids(el, 'VertList')[0], pl = kids(el, 'PrimList')[0];
+      const vid = el.getAttribute('VertID'), pid = el.getAttribute('PrimID');
+      if (vl) verts = lbrnVerts(vl.textContent);
+      else if (kids(el, 'V').length) verts = kids(el, 'V').map((v) => ({ x: num(v, 'vx'), y: num(v, 'vy'), c0: [num(v, 'c0x'), num(v, 'c0y')], c1: [num(v, 'c1x'), num(v, 'c1y')] }));
+      else verts = vertLists.get(vid); // later copies of a shape share the first one's points
+      if (pl) {
+        const t = pl.textContent.trim();
+        prims = t === 'LineClosed' ? 'closed' : [...t.matchAll(/([A-Z])(\d+) (\d+)/g)].map((q) => [q[1], +q[2], +q[3]]);
+      } else if (kids(el, 'P').length) prims = kids(el, 'P').map((p) => [p.getAttribute('T') || 'L', Math.round(num(p, 'p0')), Math.round(num(p, 'p1'))]);
+      else prims = primLists.get(pid);
+      if (vid != null && verts) vertLists.set(vid, verts);
+      if (pid != null && prims) primLists.set(pid, prims);
+      if (!verts || !verts.length || !prims) return null;
+      const subs = prims === 'closed' ? [{ closed: true, nodes: verts.map((v) => ({ x: v.x, y: v.y })) }] : lbrnSubs(verts, prims);
+      return subs.length ? base('path', layer, { subs, m }) : null;
+    }
+    if (type === 'Text') {
+      const backup = kids(el, 'BackupPath')[0];
+      const inner = backup ? kids(backup, 'Shape')[0] : null;
+      if (inner) { const s = read(inner); if (s) { s.m = m; s.layer = layer; return s; } }
+      const str = el.getAttribute('Str') || '';
+      if (!str.trim()) return null;
+      notes.add('Text was rebuilt with a DabbleCAD font, so its size and position are approximate');
+      const size = Math.max(1, num(el, 'H', 10) / 0.72);
+      // our glyphs are drawn with Y down; the text is centred on its LightBurn anchor
+      const w = str.split('\n').reduce((a, l) => Math.max(a, l.length), 1) * size * 0.6;
+      return base('text', layer, { text: str, font: 'Sans Bold', size, align: 'left', spacing: 0, m: mulM(m, [1, 0, 0, -1, -w / 2, size * 0.36]) });
+    }
+    if (type === 'Bitmap') {
+      const data = el.getAttribute('Data'), w = num(el, 'W'), hh = num(el, 'H');
+      if (!data || !(w > 0) || !(hh > 0)) { notes.add('A linked picture was skipped (only pictures stored inside the project can be read)'); return null; }
+      return base('image', layer, { w, h: hh, src: 'data:image/png;base64,' + data.replace(/\s+/g, ''), pw: 0, ph: 0, m: mulM(m, [1, 0, 0, -1, -w / 2, hh / 2]) });
+    }
+    notes.add(`"${type}" objects are not supported and were skipped`);
+    return null;
+  }
+
+  const shapes = kids(root, 'Shape').map(read).filter(Boolean);
+  if (!shapes.length) return { shapes, layers, notes: [...notes] };
+  // flip onto the bed, then nudge inside the work area if the design would hang off it
+  const bedW = machine ? machine.bedW : 400, bedH = machine ? machine.bedH : 400;
+  for (const s of shapes) s.m = mulM([1, 0, 0, -1, 0, bedH], s.m);
+  const b = boundsOf(shapes);
+  if (b && (b.x0 < 0 || b.y0 < 0 || b.x1 > bedW || b.y1 > bedH)) {
+    const fit = (lo, hi, size, max) => (size > max ? -lo : lo < 0 ? -lo : hi > max ? max - hi : 0);
+    const dx = fit(b.x0, b.x1, b.w, bedW), dy = fit(b.y0, b.y1, b.h, bedH);
+    for (const s of shapes) s.m = mulM([1, 0, 0, 1, dx, dy], s.m);
+    notes.add(b.w > bedW || b.h > bedH ? 'The design is larger than your work area' : 'The design was moved to fit inside your work area');
+  }
+  return { shapes, layers, notes: [...notes] };
+}

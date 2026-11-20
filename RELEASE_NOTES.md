@@ -16,26 +16,53 @@ material need:
 
 Leads show in blue in the job preview. All of these are saved with material presets.
 
+## Plasma torch height and Z moves
+
+- With a Z axis enabled under Device, plasma jobs handle torch height: optional
+  **touch-off** before every pierce (`G38.2`), **pierce height**, **cut height**, a
+  **safe travel height**, and commands to switch your controller's torch height
+  control on after the pierce and off before the torch stops.
+- Lasers with a Z axis get a **Z offset** and **Z step per pass** on each layer.
+
 ## New laser tools
 
-- **Auto-join open paths:** joins pieces whose ends touch, for example lines from a DXF.
-- **Delete duplicates:** removes shapes stacked on identical shapes, which would be cut twice.
-- **Select everything on this layer**, and a **Cut order** dialog (inner shapes first,
-  reduce travel, finish one layer before the next).
+- **Sub-layers:** up to three extra operations on one layer's shapes.
+- **Start the cut here** and **Reverse cut direction** in the right-click menu.
+- **Variable text:** `{serial}`, `{serial:4}`, `{date}`, `{time}`, and `{csv:1}` from a
+  list you load. Numbers and rows move on after each job.
+- **Text on a path:** bend text along any line or shape.
+- **Halftone** and **newsprint** image modes, and **image masks** (engrave only the
+  part of a picture inside a shape).
+- **Print and cut:** pick two registration marks, jog the laser to each, and the job
+  is moved, turned, and optionally scaled to match the printed sheet.
+- **Camera overlay:** take or load a photo of the bed, mark its four corners, and
+  the flattened picture appears under your design.
+- **Rotary attachment:** roller or chuck, driven by the Y motor or an A axis.
+- **Open LightBurn projects** (`.lbrn2` and `.lbrn`) with their layer settings.
+- **Auto-join open paths**, **Delete duplicates**, **Select everything on this layer**,
+  and a **Cut order** dialog.
 
 ## 3D design
 
 - **Box-select picks up whatever it touches.** Dragging a selection box used to select only
-  shapes that were completely inside it. Now anything the box touches is selected, which
-  makes it much easier to grab a hole together with the solid it cuts.
+  shapes that were completely inside it.
+- **A group shows its result while you edit it.** Opening a group used to draw its parts
+  separately, so holes looked as if they had stopped cutting. Now the finished shape
+  stays visible and the parts appear as faint ghosts you can still move.
 
 ## Not verified
 
-The plasma and lead-in output was checked by replaying the generated G-code in
-software: the torch is off for every travel move, each ignition is followed by its
-pierce dwell, and pierce points fall on scrap. It has not been run on a plasma table or
-a laser. There is no torch height control or touch-off. Dry-run a job with the torch
-disabled first, and confirm how your controller treats `M3`, `M5`, and `G4`.
+Everything in this release was checked in software only. Generated G-code was replayed
+to confirm, for example, that the torch is off and at safe height for every travel
+move, that each ignition is followed by its pierce dwell, and that pierce points fall
+on scrap. LightBurn import was tested against real project files. Nothing was run on a
+plasma table, a laser, a rotary, or with a real camera.
+
+Before trusting it: dry-run plasma jobs with the torch disabled and confirm how your
+controller treats `M3`, `M5`, `G4`, `G38.2`, and `G92`; check rotary scaling with a
+measured test; confirm camera and print-and-cut alignment with a test mark.
+
+DSP (Ruida-type) and galvo controllers are still not supported.
 
 Update from 1.2.0 with **Settings → Updates → Check for updates**.
 
