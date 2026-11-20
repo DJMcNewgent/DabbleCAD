@@ -9,6 +9,7 @@ export const DEFAULT_MACHINE = {
 
 export const FLAVORS = [
   ['grbl', 'GRBL (M4 dynamic power)'], ['grbl-m3', 'GRBL (M3 constant power)'], ['marlin', 'Marlin (inline power, S 0-255)'], ['smoothie', 'Smoothieware (S 0-1)'],
+  ['plasma', 'Plasma cutter (GRBL: M3 torch on, M5 torch off)'],
 ];
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -28,6 +29,74 @@ function pathLength(pts, closed) {
   for (let i = 0; i < pts.length - 1; i++) len += dist(pts[i], pts[i + 1]);
   if (closed && pts.length > 1) len += dist(pts[pts.length - 1], pts[0]);
   return len;
+}
+
+/**
+ * Lead-in / lead-out for a closed outline, placed on the waste side (outside a part,
+ * inside a hole) so the pierce mark and the start/stop blemish stay off the finished edge.
+ * The cut is moved to start in the middle of its first edge, away from corners.
+ * Returns { pts (ring starting and ending at the new start), leadIn, leadOut } with the
+ * lead point lists running in travel order; a lead that does not fit is left out.
+ */
+export function buildLeads(ring, hole, { leadIn = 0, leadOut = 0, leadStyle = 'arc' } = {}) {
+  const a = ring[0], b = ring[1];
+  const len = dist(a, b);
+  if (ring.length < 3 || len < 1e-6) return { pts: [...ring, ring[0]], leadIn: [], leadOut: [], skipped: 0 };
+  const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const t = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+  let n = [-t[1], t[0]];
+  const leftInside = pointInPoly([mid[0] + n[0] * 1e-3, mid[1] + n[1] * 1e-3], ring);
+  // waste side: the outside of a part, the inside of a hole
+  if (hole ? !leftInside : leftInside) n = [-n[0], -n[1]];
+  const onWaste = (p) => pointInPoly(p, ring) === !!hole;
+  const shape = (length, dir) => {
+    const out = [];
+    if (leadStyle === 'line') {
+      const c = Math.SQRT1_2 * length;
+      out.push([mid[0] + dir * t[0] * c + n[0] * c, mid[1] + dir * t[1] * c + n[1] * c]);
+    } else {
+      // quarter circle tangent to the outline at the start point
+      const cx = mid[0] + n[0] * length, cy = mid[1] + n[1] * length;
+      for (let k = 1; k <= 8; k++) {
+        const th = (Math.PI / 2) * (k / 8), cs = Math.cos(th), sn = Math.sin(th);
+        out.push([cx - n[0] * length * cs + dir * t[0] * length * sn, cy - n[1] * length * cs + dir * t[1] * length * sn]);
+      }
+    }
+    return out;
+  };
+  let skipped = 0;
+  const fit = (length, dir) => {
+    if (!(length > 0)) return [];
+    for (let L = length, tries = 0; tries < 4; tries++, L /= 2) {
+      const pts = shape(L, dir);
+      if (pts.every(onWaste)) return pts;
+    }
+    skipped += 1;
+    return [];
+  };
+  const inPts = fit(leadIn, -1).reverse(); // far end first, arriving at the start point
+  const outPts = fit(leadOut, 1);
+  return { pts: [mid, ...ring.slice(1), ring[0], mid], leadIn: inPts, leadOut: outPts, skipped };
+}
+
+/** Split a polyline into alternating cut / skip pieces. Returns [{ x, y, on }] after the first point. */
+function perforate(pts, cut, skip) {
+  const out = [];
+  let on = true, left = cut;
+  for (let i = 1; i < pts.length; i++) {
+    let a = pts[i - 1];
+    const b = pts[i];
+    let seg = dist(a, b);
+    while (seg > left + 1e-9) {
+      const k = left / seg;
+      a = [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+      out.push({ x: a[0], y: a[1], on });
+      seg -= left; on = !on; left = on ? cut : skip;
+    }
+    out.push({ x: b[0], y: b[1], on });
+    left -= seg;
+  }
+  return out;
 }
 
 /** Cut a closed outline into open pieces, leaving `count` uncut tabs of `size` mm. */
@@ -203,6 +272,7 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
     moves.push({ air: !!layer.air, layer: li });
     const images = mine.filter((e) => e.shape.type === 'image');
     const vectors = mine.filter((e) => e.shape.type !== 'image');
+    if (machine.flavor === 'plasma' && (images.length || layer.mode !== 'line')) warnings.push(`Layer ${String(li + 1).padStart(2, '0')}: fills and images do not suit a plasma cutter; use Line mode`);
     for (let pass = 0; pass < Math.max(1, layer.passes); pass++) {
       for (const e of images) rasterImage(e, layer, getImage, moves, warnings);
       if (!vectors.length) continue;
@@ -263,11 +333,39 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
           }
         }
         const res = orderPaths(paths, pos, opt);
+        const line = layer.mode === 'line';
+        const wantLeads = line && (layer.leadIn > 0 || layer.leadOut > 0);
+        const rings = wantLeads ? [...new Set(paths.filter((q) => q.closed && q.ring).map((q) => q.ring))] : [];
+        const perf = line && layer.perforate && layer.perfCut > 0 && layer.perfSkip > 0;
+        let leadsSkipped = 0;
         for (const p of res.ordered) {
-          moves.push({ x: p.pts[0][0], y: p.pts[0][1], rapid: true });
-          for (let i = 1; i < p.pts.length; i++) moves.push({ x: p.pts[i][0], y: p.pts[i][1], s: p.power, f });
-          if (p.closed) moves.push({ x: p.pts[0][0], y: p.pts[0][1], s: p.power, f });
+          let pts = p.closed ? [...p.pts, p.pts[0]] : p.pts;
+          let leadIn = [], leadOut = [];
+          if (wantLeads && p.closed && p.pts.length > 2) {
+            // an outline inside an odd number of other outlines is a hole
+            const depth = rings.filter((r) => r !== p.ring && pointInPoly(p.pts[0], r)).length;
+            const lead = buildLeads(p.pts, depth % 2 === 1, layer);
+            pts = lead.pts; leadIn = lead.leadIn; leadOut = lead.leadOut; leadsSkipped += lead.skipped;
+          }
+          const first = leadIn.length ? leadIn[0] : pts[0];
+          moves.push({ x: first[0], y: first[1], rapid: true });
+          // pierce: fire in place before moving, so the beam or arc is through the material
+          if (line && layer.pierce > 0) moves.push({ dwell: layer.pierce / 1000, s: p.power, f });
+          for (let i = 1; i < leadIn.length; i++) moves.push({ x: leadIn[i][0], y: leadIn[i][1], s: p.power, f, lead: true });
+          if (leadIn.length) moves.push({ x: pts[0][0], y: pts[0][1], s: p.power, f, lead: true });
+          if (perf) for (const q of perforate(pts, layer.perfCut, layer.perfSkip)) moves.push({ x: q.x, y: q.y, s: q.on ? p.power : 0, f });
+          else for (let i = 1; i < pts.length; i++) moves.push({ x: pts[i][0], y: pts[i][1], s: p.power, f });
+          if (p.closed && line && layer.overcut > 0 && !perf) {
+            // run past the start so the cut is sure to close
+            let left = layer.overcut;
+            for (let i = 1; i < pts.length && left > 1e-9; i++) {
+              const a = pts[i - 1], b = pts[i], seg = dist(a, b), k = Math.min(1, left / (seg || 1));
+              moves.push({ x: a[0] + (b[0] - a[0]) * k, y: a[1] + (b[1] - a[1]) * k, s: p.power, f });
+              left -= seg;
+            }
+          } else for (const q of leadOut) moves.push({ x: q[0], y: q[1], s: p.power, f, lead: true });
         }
+        if (leadsSkipped) warnings.push(`Layer ${String(li + 1).padStart(2, '0')}: ${leadsSkipped} lead${leadsSkipped > 1 ? 's' : ''} did not fit and ${leadsSkipped > 1 ? 'were' : 'was'} left out`);
       }
       const last = [...moves].reverse().find((mv) => mv.x != null);
       if (last) pos = [last.x, last.y];
@@ -278,6 +376,7 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
   let cut = 0, rapid = 0, time = 0, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   let p = null;
   for (const mv of moves) {
+    if (mv.dwell) time += mv.dwell;
     if (mv.x == null) continue;
     if (p) {
       const d = Math.hypot(mv.x - p.x, mv.y - p.y);
@@ -331,16 +430,44 @@ export function toGcode(plan, doc, machine) {
     `; Controller: ${fl}   Bounds: ${plan.bounds ? `${n3(plan.bounds.w)} x ${n3(plan.bounds.h)} mm` : 'empty'}   Est. time: ${formatTime(plan.stats.time)}`,
     'G21', 'G90'];
   if (doc.startFrom === 'current') out.push('G92 X0 Y0 ; job starts at the current position');
-  out.push(fl === 'grbl' ? 'M4 S0' : fl === 'grbl-m3' ? 'M3 S0' : fl === 'marlin' ? 'M3 I' : 'M3 S0');
-  let lastF = null, lastS = null, air = false, rapidMode = null, layer = null;
+  const plasma = fl === 'plasma';
+  if (!plasma) out.push(fl === 'grbl' ? 'M4 S0' : fl === 'grbl-m3' ? 'M3 S0' : fl === 'marlin' ? 'M3 I' : 'M3 S0');
+  let lastF = null, lastS = null, air = false, rapidMode = null, layer = null, torch = false;
+  // GRBL dwells in seconds; Marlin and Smoothieware take milliseconds in P
+  const dwell = (sec) => (fl === 'marlin' || fl === 'smoothie' ? `G4 P${Math.round(sec * 1000)}` : `G4 P${n3(sec)}`);
+  const torchOn = () => { out.push('M3 S' + sVal(1)); torch = true; };
+  const torchOff = () => { if (torch) { out.push('M5'); torch = false; } };
   for (const mv of plan.moves) {
     if (mv.x == null) {
-      if (mv.air !== air) { out.push(mv.air ? 'M8' : 'M9'); air = mv.air; }
+      if (mv.dwell) {
+        if (plasma) { if (!torch) torchOn(); out.push(dwell(mv.dwell) + ' ; pierce'); }
+        else {
+          // hold the beam on in place: constant-power M3 in G1 mode, then back to the cutting mode
+          const s = sVal(mv.s), f = n3(mv.f);
+          out.push(`G1 F${f}`, `M3 S${s}`, dwell(mv.dwell) + ' ; pierce');
+          if (fl === 'grbl') out.push(`M4 S${s}`);
+          rapidMode = 'G1'; lastF = f; lastS = s;
+        }
+      } else if ('air' in mv && mv.air !== air) { out.push(mv.air ? 'M8' : 'M9'); air = mv.air; }
       continue;
     }
     if (mv.layer !== layer) { layer = mv.layer; out.push(`; Layer ${String(layer + 1).padStart(2, '0')}`); }
     const [mx, my] = toMachine(machine, mv.x, mv.y);
     const xy = `X${n3(mx + ox)} Y${n3(my + oy)}`;
+    if (plasma) {
+      // the torch is either on or off: no power words, and it is always off while travelling
+      if (mv.rapid || !(mv.s > 0)) {
+        torchOff();
+        out.push((rapidMode === 'G0' ? '' : 'G0 ') + xy);
+        rapidMode = 'G0';
+      } else {
+        if (!torch) torchOn();
+        const f = n3(mv.f);
+        out.push((rapidMode === 'G1' ? '' : 'G1 ') + xy + (f !== lastF ? ' F' + f : ''));
+        rapidMode = 'G1'; lastF = f;
+      }
+      continue;
+    }
     if (mv.rapid) {
       out.push((modal && rapidMode === 'G0' ? '' : 'G0 ') + xy + (fl === 'marlin' ? '' : lastS === '0' ? '' : ' S0'));
       rapidMode = 'G0'; lastS = '0';

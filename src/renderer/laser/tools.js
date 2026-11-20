@@ -255,6 +255,24 @@ export function textDialog(ws, existing, at) {
   setTimeout(() => ta.focus(), 30);
 }
 
+/** How the planner orders cuts. */
+export function cutOrderDialog(ws) {
+  const m = modal({ title: 'Cut order', width: 420 });
+  quiet(m);
+  const o = ws.doc.optimize || (ws.doc.optimize = { byLayer: true, innerFirst: true, reduceTravel: true });
+  const row = (key, label, hint) => {
+    const cb = h('input', { type: 'checkbox', checked: o[key] !== false });
+    cb.addEventListener('change', () => { o[key] = cb.checked; ws.commit(); });
+    return h('label', { class: 'check', style: { alignItems: 'flex-start' } }, cb, h('span', {}, label, h('br'), h('small', { style: { opacity: 0.7 } }, hint)));
+  };
+  m.body.append(
+    row('innerFirst', 'Cut inner shapes first', 'Holes are cut before the outline around them, so a part cannot shift before its holes are done.'),
+    row('reduceTravel', 'Reduce travel moves', 'Start each cut at the point nearest to where the last one ended.'),
+    row('byLayer', 'Finish one layer before the next', 'Layers run in the order shown in the Layers list.'),
+    h('div', { class: 'modal-actions' }, button({ label: 'Close', cls: 'btn-primary', onClick: () => m.close() })));
+  return m;
+}
+
 export function qrDialog(ws) {
   const m = modal({ title: 'QR code', width: 420 });
   quiet(m);
@@ -404,6 +422,7 @@ export function previewDialog(ws) {
       head = b;
       const mv = moves[i];
       if (mv.rapid || !(mv.s > 0)) { if (!travel.checked) continue; ctx.strokeStyle = 'rgba(230,60,60,.55)'; ctx.lineWidth = 0.6; }
+      else if (mv.lead) { ctx.strokeStyle = '#2f7de1'; ctx.lineWidth = 1; }
       else { const g = shade.checked ? Math.round(200 - 200 * Math.min(1, mv.s)) : 0; ctx.strokeStyle = `rgb(${g},${g},${g})`; ctx.lineWidth = 1; }
       ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
     }

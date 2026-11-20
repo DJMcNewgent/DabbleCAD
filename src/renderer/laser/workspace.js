@@ -165,6 +165,10 @@ export class LaserWorkspace {
         { label: 'Convert to path', onClick: () => this.convertToPath() },
         { label: 'Close path', onClick: () => this.closePaths() },
         { label: 'Break apart', onClick: () => this.breakApart() },
+        { label: 'Auto-join open paths', onClick: () => this.autoJoin() },
+        { label: 'Delete duplicates', onClick: () => this.deleteDuplicates() },
+        { label: 'Select everything on this layer', onClick: () => this.selectLayer() },
+        { label: 'Cut order…', onClick: () => tools.cutOrderDialog(this) },
         'sep',
         { label: 'Grid array…', onClick: () => tools.gridArrayDialog(this) },
         { label: 'Circular array…', onClick: () => tools.circularArrayDialog(this) },
@@ -888,6 +892,83 @@ export class LaserWorkspace {
     this.doc.shapes = this.doc.shapes.map((s) => { if (this.sel.includes(s.id) && !['path', 'image', 'group'].includes(s.type)) { n += 1; return toPath(s); } return s; });
     if (n) this.commit(); else toast('Select a rectangle, ellipse, polygon or text to convert');
   }
+  /** Join open paths whose ends touch (within `tol` mm) into longer, closed where possible, outlines. */
+  autoJoin(tol = 0.2) {
+    const picked = this.movable().filter((s) => s.type === 'path' && s.subs.some((sub) => !sub.closed));
+    if (!picked.length) return toast('Select open paths to join (convert shapes to paths first)');
+    // bake each shape's placement into its nodes so pieces from different shapes line up
+    const world = (s, node) => {
+      const out = {};
+      [out.x, out.y] = apply(s.m, [node.x, node.y]);
+      if (node.ix != null) [out.ix, out.iy] = apply(s.m, [node.ix, node.iy]);
+      if (node.ox != null) [out.ox, out.oy] = apply(s.m, [node.ox, node.oy]);
+      return out;
+    };
+    const flip = (nodes) => [...nodes].reverse().map((n) => ({ x: n.x, y: n.y, ...(n.ox != null ? { ix: n.ox, iy: n.oy } : {}), ...(n.ix != null ? { ox: n.ix, oy: n.iy } : {}) }));
+    const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) <= tol;
+    const open = [], done = [];
+    for (const s of picked) for (const sub of s.subs) (sub.closed ? done : open).push({ closed: sub.closed, nodes: sub.nodes.map((n) => world(s, n)) });
+    const before = open.length;
+    let joins = 0;
+    for (let i = 0; i < open.length; i++) {
+      let cur = open[i], grew = true;
+      while (grew) {
+        grew = false;
+        for (let j = i + 1; j < open.length; j++) {
+          const o = open[j], a0 = cur.nodes[0], a1 = cur.nodes[cur.nodes.length - 1], b0 = o.nodes[0], b1 = o.nodes[o.nodes.length - 1];
+          let merged = null;
+          if (near(a1, b0)) merged = [...cur.nodes, ...o.nodes.slice(1)];
+          else if (near(a1, b1)) merged = [...cur.nodes, ...flip(o.nodes).slice(1)];
+          else if (near(a0, b1)) merged = [...o.nodes, ...cur.nodes.slice(1)];
+          else if (near(a0, b0)) merged = [...flip(o.nodes), ...cur.nodes.slice(1)];
+          if (!merged) continue;
+          cur = { closed: false, nodes: merged };
+          open.splice(j, 1); joins += 1; grew = true;
+          break;
+        }
+      }
+      if (cur.nodes.length > 2 && near(cur.nodes[0], cur.nodes[cur.nodes.length - 1])) { cur = { closed: true, nodes: cur.nodes.slice(0, -1) }; joins += 1; }
+      open[i] = cur;
+    }
+    if (!joins) return toast('No path ends are close enough to join');
+    const ids = new Set(picked.map((s) => s.id));
+    const out = makePath(picked[0].layer, [...done, ...open]);
+    const at = this.doc.shapes.findIndex((s) => ids.has(s.id));
+    this.doc.shapes = this.doc.shapes.filter((s) => !ids.has(s.id));
+    this.doc.shapes.splice(at, 0, out);
+    this.sel = [out.id];
+    this.commit();
+    const closed = open.filter((o) => o.closed).length;
+    toast(`Joined ${before} pieces into ${open.length} path${open.length === 1 ? '' : 's'} (${closed} closed)`);
+  }
+
+  /** Remove shapes that sit exactly on top of an identical shape on the same layer (they would be cut twice). */
+  deleteDuplicates() {
+    const pool = this.sel.length > 1 ? new Set(this.sel) : null;
+    const seen = new Set();
+    const keep = [];
+    let removed = 0;
+    for (const s of this.doc.shapes) {
+      if (s.type === 'image' || s.type === 'group' || (pool && !pool.has(s.id))) { keep.push(s); continue; }
+      const key = s.layer + '|' + flatten(s).map((e) => (e.closed ? 'c' : 'o') + e.pts.map((p) => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join(' ')).sort().join('/');
+      if (seen.has(key)) { removed += 1; continue; }
+      seen.add(key);
+      keep.push(s);
+    }
+    if (!removed) return toast('No duplicate shapes found');
+    this.doc.shapes = keep;
+    this.sel = this.sel.filter((id) => keep.some((s) => s.id === id));
+    this.commit();
+    toast(`Removed ${removed} duplicate shape${removed === 1 ? '' : 's'}`);
+  }
+
+  selectLayer() {
+    const li = this.sel.length ? this.selected()[0].layer : this.selectedLayer;
+    const ids = this.doc.shapes.filter((s) => this.visible(s) && (s.type === 'group' ? false : s.layer === li)).map((s) => s.id);
+    if (!ids.length) return toast('Nothing is on that layer');
+    this.select(ids);
+  }
+
   closePaths() {
     let n = 0;
     for (const s of this.selected()) if (s.type === 'path') for (const sub of s.subs) if (!sub.closed && sub.nodes.length > 2) { sub.closed = true; n += 1; }
@@ -1036,6 +1117,19 @@ export class LaserWorkspace {
     if (L.mode === 'fill') ed.append(num('Scan angle', () => L.angle, (v) => { L.angle = v; }, 5, -360, 360, '°'), check('Cross-hatch', 'crosshatch'));
     if (L.mode === 'line') ed.append(num('Kerf offset', () => L.kerf, (v) => { L.kerf = v; }, 0.01, -5, 5, 'mm'),
       num('Tabs per shape', () => L.tabs, (v) => { L.tabs = Math.round(v); }, 1, 0, 50), num('Tab size', () => L.tabSize, (v) => { L.tabSize = v; }, 0.1, 0.05, 20, 'mm'));
+    if (L.mode === 'line') {
+      const style = h('select', { class: 'select', title: 'Arc leads meet the outline smoothly; line leads come in at 45°' }, h('option', { value: 'arc' }, 'Arc'), h('option', { value: 'line' }, 'Line'));
+      style.value = L.leadStyle === 'line' ? 'line' : 'arc';
+      style.addEventListener('change', () => { L.leadStyle = style.value; this.commit(); });
+      ed.append(h('div', { class: 'le-sub', title: 'Start and finish each closed cut on the scrap side, so the pierce mark stays off the part. Useful for plasma and thick material.' }, 'Leads and pierce'),
+        num('Lead-in', () => L.leadIn, (v) => { L.leadIn = v; }, 0.5, 0, 50, 'mm'),
+        num('Lead-out', () => L.leadOut, (v) => { L.leadOut = v; }, 0.5, 0, 50, 'mm'),
+        h('label', { class: 'le-row' }, h('span', {}, 'Lead shape'), style),
+        num('Pierce delay', () => L.pierce, (v) => { L.pierce = Math.round(v); }, 50, 0, 20000, 'ms'),
+        num('Overcut', () => L.overcut, (v) => { L.overcut = v; }, 0.5, 0, 50, 'mm'),
+        check('Perforate (cut / skip)', 'perforate'));
+      if (L.perforate) ed.append(num('Cut length', () => L.perfCut, (v) => { L.perfCut = v; }, 0.5, 0.1, 500, 'mm'), num('Skip length', () => L.perfSkip, (v) => { L.perfSkip = v; }, 0.5, 0.1, 500, 'mm'));
+    }
     ed.append(check('Air assist', 'air'));
     if (hasImage) {
       const im = h('select', { class: 'select' }, tools.IMAGE_MODES.map(([v, n]) => h('option', { value: v }, n)));
@@ -1049,7 +1143,7 @@ export class LaserWorkspace {
 
   // Material library: your own saved speed / power settings, kept with the app's settings.
   _materialRow(L) {
-    const KEYS = ['mode', 'speed', 'powerMax', 'powerMin', 'passes', 'interval', 'angle', 'crosshatch', 'kerf', 'air'];
+    const KEYS = ['mode', 'speed', 'powerMax', 'powerMin', 'passes', 'interval', 'angle', 'crosshatch', 'kerf', 'air', 'leadIn', 'leadOut', 'leadStyle', 'pierce', 'overcut', 'perforate', 'perfCut', 'perfSkip'];
     const list = () => (Array.isArray(this.app.settings.laserMaterials) ? this.app.settings.laserMaterials : []);
     const store = (next) => this.app.patchSettings({ laserMaterials: next });
     const sel = h('select', { class: 'select', title: 'Apply settings you saved for a material' }, h('option', { value: '' }, list().length ? 'Apply saved material…' : 'No saved materials yet'),

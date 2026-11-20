@@ -159,5 +159,73 @@ document.querySelector('.btn[data-mode="laser"]').click(); await wait(200);
   check('material-applied', to.speed === 123 && to.powerMax === 45 && to.passes === 3 && to.mode === 'fill', [to.speed, to.powerMax, to.passes, to.mode]);
   app.patchSettings({ laserMaterials: [] });
 }
+// leads, pierce delay and plasma output: a plate with a round hole
+{
+  const G = L.gcode, M = L.model;
+  const li = 12;
+  Object.assign(M.layerOf(ws.doc, li), { mode: 'line', speed: 20, powerMax: 100, passes: 1, kerf: 0, tabs: 0, leadIn: 4, leadOut: 3, leadStyle: 'arc', pierce: 500, overcut: 0, perforate: false });
+  const plate = M.makeRect(li, 100, 100, 100, 60), hole = M.makeEllipse(li, 140, 120, 20, 20);
+  const docP = { ...ws.doc, shapes: [plate, hole] };
+  const plasma = { ...ws.machine, flavor: 'plasma' };
+  const plan = G.planJob(docP, plasma, ws.getImage);
+  const dwells = plan.moves.filter((m) => m.dwell);
+  check('pierce-per-cut', dwells.length === 2 && near(dwells[0].dwell, 0.5), dwells.length);
+  // every pierce happens off the finished edge: outside the plate, or inside the hole
+  const starts = []; plan.moves.forEach((m, i) => { if (m.dwell) starts.push(plan.moves[i - 1]); });
+  const inPlate = (p) => p.x > 100 && p.x < 200 && p.y > 100 && p.y < 160;
+  const inHole = (p) => Math.hypot(p.x - 150, p.y - 130) < 10;
+  out.pierceAt = starts.map((p) => [+p.x.toFixed(1), +p.y.toFixed(1), inPlate(p), inHole(p)]);
+  check('pierce-on-waste', starts.length === 2 && starts.some((p) => inHole(p)) && starts.some((p) => !inPlate(p)), out.pierceAt);
+  check('hole-cut-first', inHole(starts[0]), out.pierceAt);
+  const leadMoves = plan.moves.filter((m) => m.lead);
+  check('lead-moves', leadMoves.length >= 30 && leadMoves.every((m) => inHole(m) || !inPlate(m) || Math.min(Math.abs(m.x - 100), Math.abs(m.x - 200), Math.abs(m.y - 100), Math.abs(m.y - 160)) < 0.01 || Math.abs(Math.hypot(m.x - 150, m.y - 130) - 10) < 0.2), leadMoves.length);
+  let cut = 0, prev = null; for (const m of plan.moves) { if (m.x == null) continue; if (prev && !m.rapid && m.s > 0) cut += Math.hypot(m.x - prev.x, m.y - prev.y); prev = m; }
+  // perimeters (320 + ~62.8) plus two quarter-circle leads of 4 mm and two of 3 mm
+  const expect = 320 + Math.PI * 20 + 2 * (Math.PI / 2) * 4 + 2 * (Math.PI / 2) * 3;
+  out.leadCut = [+cut.toFixed(1), +expect.toFixed(1)];
+  check('lead-cut-length', near(cut, expect, 1.5), out.leadCut);
+  check('pierce-in-time', plan.stats.time > cut / 20 + 0.99, plan.stats.time);
+  const g = G.toGcode(plan, docP, plasma).split('\n');
+  // replay the program: the torch must be off for every travel move, and each ignition is followed by the pierce dwell
+  let torch = false, bad = [], on = 0, off = 0, sWords = 0;
+  g.forEach((line, i) => {
+    if (line.startsWith('M3')) { torch = true; on += 1; if (!/^G4 P0\.5/.test(g[i + 1] || '')) bad.push('no dwell after line ' + i); }
+    else if (line.startsWith('M5')) { torch = false; off += 1; }
+    else if (/^G0|^X/.test(line) && /G0/.test(line) && torch) bad.push('travel with torch on at line ' + i);
+    if (/^(G1 )?X.* S\d/.test(line)) sWords += 1;
+  });
+  out.plasma = [on, off, sWords, bad.length];
+  check('plasma-gcode', on === 2 && off >= 2 && sWords === 0 && !bad.length && !torch, [on, off, sWords, bad]);
+  const gl = G.toGcode(G.planJob(docP, ws.machine, ws.getImage), docP, ws.machine);
+  check('laser-pierce-gcode', (gl.match(/G4 P0\.5 ; pierce/g) || []).length === 2 && gl.includes('M3 S1000') && gl.includes('M4 S1000'), gl.slice(0, 300));
+  // a lead that cannot fit inside a tiny hole is dropped with a warning instead of cutting into the part
+  const tiny = M.makeEllipse(li, 300, 300, 1.2, 1.2);
+  const tp = G.planJob({ ...ws.doc, shapes: [tiny] }, plasma, ws.getImage);
+  check('lead-outer-still-fits', tp.moves.filter((m) => m.lead).length > 0);
+  Object.assign(M.layerOf(ws.doc, li), { leadIn: 0, leadOut: 0, pierce: 0, overcut: 5 });
+  const oc = G.planJob({ ...ws.doc, shapes: [M.makeRect(li, 10, 10, 40, 40)] }, ws.machine, ws.getImage);
+  let ol = 0; prev = null; for (const m of oc.moves) { if (m.x == null) continue; if (prev && !m.rapid && m.s > 0) ol += Math.hypot(m.x - prev.x, m.y - prev.y); prev = m; }
+  check('overcut', near(ol, 165, 0.05), ol);
+  Object.assign(M.layerOf(ws.doc, li), { overcut: 0, perforate: true, perfCut: 3, perfSkip: 1 });
+  const pf = G.planJob({ ...ws.doc, shapes: [M.makeRect(li, 10, 10, 40, 40)] }, ws.machine, ws.getImage);
+  let pl = 0; prev = null; for (const m of pf.moves) { if (m.x == null) continue; if (prev && !m.rapid && m.s > 0) pl += Math.hypot(m.x - prev.x, m.y - prev.y); prev = m; }
+  check('perforate', near(pl, 120, 0.5), pl);
+  Object.assign(M.layerOf(ws.doc, li), { perforate: false });
+}
+// auto-join and duplicate removal
+{
+  const M = L.model, n0 = ws.doc.shapes.length;
+  const seg = (a, b) => M.makePath(14, [{ closed: false, nodes: [{ x: a[0], y: a[1] }, { x: b[0], y: b[1] }] }]);
+  const parts = [seg([300, 20], [340, 20]), seg([340, 20.1], [340, 60]), seg([300, 60], [340, 60]), seg([300, 20], [300, 60])];
+  ws.add(parts); ws.select(parts.map((s) => s.id)); ws.autoJoin();
+  const joined = ws.selected()[0];
+  check('auto-join', ws.doc.shapes.length === n0 + 1 && joined.subs.length === 1 && joined.subs[0].closed && joined.subs[0].nodes.length === 4, joined && joined.subs.map((s) => [s.closed, s.nodes.length]));
+  const d1 = M.makeRect(15, 350, 20, 10, 10), d2 = M.makeRect(15, 350, 20, 10, 10), d3 = M.makeRect(15, 350, 40, 10, 10);
+  ws.add([d1, d2, d3]); ws.select([]); const n1 = ws.doc.shapes.length; ws.deleteDuplicates();
+  check('delete-duplicates', ws.doc.shapes.length === n1 - 1, n1 - ws.doc.shapes.length);
+  ws.select([d3.id]); ws.selectLayer();
+  check('select-layer', ws.sel.length === 2, ws.sel.length);
+  ws.select([]);
+}
 out.fails = fails;
 return out;

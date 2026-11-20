@@ -194,6 +194,13 @@ same design as your 3D work.
 - 30 color layers plus two tool layers; Line, Fill, and Offset Fill modes.
 - Speed, power, passes, interval, scan angle, cross-hatch, overscan, kerf, tabs,
   and air-assist settings.
+- **Lead-in, lead-out, and pierce delay** on Line layers, with arc or straight leads
+  placed on the scrap side (outside a part, inside a hole), plus overcut and
+  perforation (cut / skip).
+- **Plasma cutting:** choose the *Plasma cutter* controller under **Device** to get
+  torch-on / torch-off G-code (`M3`, pierce dwell, cut, `M5`) with no power words.
+  There is no torch height control or touch-off; set height on the machine.
+- Auto-join open paths, delete duplicates, select by layer, and cut-order options.
 - Weld, subtract, intersect, exclude, offset, arrays, trace, align, distribute,
   flip, and rotate.
 - Image engraving with threshold, dithering, and grayscale options.
@@ -280,6 +287,11 @@ DabbleCAD is an early project, not a claim of production certification.
   a bolt and nut pair and adjust the clearance before relying on a fit.
 - Complex imported geometry and advanced SVG/DXF/3MF features need inspection.
 - Estimates and suggested laser settings are not material-specific calibration.
+- Plasma output has been checked as G-code only, never on a plasma table. Run it in
+  the air first, and confirm how your controller treats `M3`, `M5`, and `G4`.
+- Compared with dedicated laser software, the laser workspace has no camera, rotary
+  setup, print-and-cut, variable text, text on a path, sub-layers, Z moves, or
+  support for DSP (Ruida-type) and galvo controllers.
 - Real laser hardware, native close dialogs, installation, and operating-system
   trust prompts need manual testing in addition to automated tests.
 - Mac release builds must pass the macOS CI jobs and manual launch checks before

@@ -16,6 +16,7 @@ export function defaultLayer(i) {
     index: i, mode: 'line', speed: i === 0 ? 10 : 100, powerMax: i === 0 ? 80 : 30, powerMin: 0, passes: 1,
     interval: 0.1, angle: 0, crosshatch: false, bidirectional: true, overscan: 2.5,
     kerf: 0, tabs: 0, tabSize: 0.5, air: false, output: !isToolLayer(i), show: true,
+    leadIn: 0, leadOut: 0, leadStyle: 'arc', pierce: 0, overcut: 0, perforate: false, perfCut: 3, perfSkip: 1.5,
     image: { mode: 'floyd', negative: false, brightness: 0, contrast: 0, gamma: 1, passThrough: false },
   };
 }
