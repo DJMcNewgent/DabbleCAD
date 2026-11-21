@@ -168,6 +168,11 @@ export function depthMapStudio(ws) {
 
   const view2d = h('canvas', { class: 'dm-canvas' });
   const view3d = h('div', { class: 'dm-3d' });
+  // The scroll wheel zooms either view; the flat view zooms about the pointer and drags to pan.
+  const HOME = 4.4, zoom = { s: 1, x: 0, y: 0, dist: HOME };
+  const zoomBadge = h('button', { class: 'dm-zoom', type: 'button', title: 'Reset zoom (or double-click the view)' });
+  zoomBadge.hidden = true;
+  const stage = h('div', { class: 'dm-stage' }, view2d, view3d, zoomBadge);
   const hist = h('canvas', { class: 'dm-hist', width: 512, height: 70 });
   const info = h('div', { class: 'insp-note' }, 'Load an STL model or an image, or use the current 3D design.');
   const advice = h('div', { class: 'dm-advice' });
@@ -218,7 +223,7 @@ export function depthMapStudio(ws) {
       select('Material', 'metal', Object.keys(METALS).map((k) => [k, k])), slider('Relief height', 'relief', 1, 40, 1, (v) => v + '%')));
 
   m.body.append(h('div', { class: 'dm-layout' },
-    h('div', { class: 'dm-left' }, h('div', { class: 'row' }, tabs, h('span', { style: { flex: 1 } }), info), h('div', { class: 'dm-stage' }, view2d, view3d), hist),
+    h('div', { class: 'dm-left' }, h('div', { class: 'row' }, tabs, h('span', { style: { flex: 1 } }), info), stage, hist),
     controls),
   h('div', { class: 'modal-actions' },
     button({ label: 'Export 16-bit PNG', cls: 'btn-outline', onClick: () => exportPng(16) }),
@@ -228,6 +233,42 @@ export function depthMapStudio(ws) {
     button({ label: 'Close', cls: 'btn-outline', onClick: () => m.close() }),
     button({ label: 'Add as slice passes', cls: 'btn-outline', title: 'Place one mask per slice on its own layer, so the laser cuts the relief pass by pass', onClick: () => addSlicesToLaser() }),
     button({ label: 'Add to laser workspace', cls: 'btn-primary', title: 'Place the depth map on the bed as a grayscale engraving', onClick: () => addToLaser() })));
+
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  function applyZoom() {
+    const flat = tab !== '3d';
+    // the picture may not be dragged further than its own edge
+    const lx = Math.max(0, (view2d.offsetWidth * zoom.s - stage.clientWidth) / 2), ly = Math.max(0, (view2d.offsetHeight * zoom.s - stage.clientHeight) / 2);
+    zoom.x = clamp(zoom.x, -lx, lx); zoom.y = clamp(zoom.y, -ly, ly);
+    view2d.style.transform = zoom.s > 1 ? `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.s})` : '';
+    view2d.style.imageRendering = zoom.s >= 4 ? 'pixelated' : '';
+    stage.classList.toggle('zoomed', flat && zoom.s > 1);
+    const pct = Math.round((flat ? zoom.s : HOME / zoom.dist) * 100);
+    zoomBadge.hidden = !source || pct === 100;
+    zoomBadge.textContent = pct + '%';
+  }
+  function resetZoom() {
+    if (tab === '3d') { zoom.dist = HOME; render3d(); } else { zoom.s = 1; zoom.x = 0; zoom.y = 0; }
+    applyZoom();
+  }
+  stage.addEventListener('wheel', (e) => {
+    if (!source) return;
+    e.preventDefault();
+    const f = Math.exp(-clamp(e.deltaY * 0.0016, -1, 1));
+    if (tab === '3d') { zoom.dist = clamp(zoom.dist / f, 1.5, 12); render3d(); }
+    else {
+      const r = stage.getBoundingClientRect(), px = e.clientX - (r.left + r.width / 2), py = e.clientY - (r.top + r.height / 2);
+      const next = clamp(zoom.s * f, 1, 32), k = next / zoom.s;
+      zoom.x = px - (px - zoom.x) * k; zoom.y = py - (py - zoom.y) * k; zoom.s = next;
+    }
+    applyZoom();
+  }, { passive: false });
+  let pan = null;
+  stage.addEventListener('pointerdown', (e) => { if (tab === '3d' || zoom.s <= 1 || e.target === zoomBadge) return; pan = [e.clientX, e.clientY]; stage.setPointerCapture(e.pointerId); });
+  stage.addEventListener('pointermove', (e) => { if (!pan) return; zoom.x += e.clientX - pan[0]; zoom.y += e.clientY - pan[1]; pan = [e.clientX, e.clientY]; applyZoom(); });
+  for (const type of ['pointerup', 'pointercancel']) stage.addEventListener(type, () => { pan = null; });
+  stage.addEventListener('dblclick', resetZoom);
+  zoomBadge.addEventListener('click', resetZoom);
 
   let timer = null;
   const schedule = () => { clearTimeout(timer); timer = setTimeout(update, 40); };
@@ -269,6 +310,7 @@ export function depthMapStudio(ws) {
         raw = null;
         viewRow.style.display = 'none';
       }
+      zoom.s = 1; zoom.x = 0; zoom.y = 0;
       rebuildSource();
     } catch (err) { toast(`Could not open ${f.name}: ${err.message || err}`, 'warn', 5000); }
   }
@@ -285,6 +327,7 @@ export function depthMapStudio(ws) {
     raw = { positions, label: '3D design' };
     sourceImage = null;
     viewRow.style.display = '';
+    zoom.s = 1; zoom.x = 0; zoom.y = 0;
     rebuildSource();
   }
 
@@ -303,7 +346,7 @@ export function depthMapStudio(ws) {
     if (!alive) return;
     view2d.style.display = tab === '3d' ? 'none' : '';
     view3d.style.display = tab === '3d' ? '' : 'none';
-    if (!source) { advice.textContent = ''; return; }
+    if (!source) { advice.textContent = ''; applyZoom(); return; }
     processed = processHeight(source, o);
     const { w, h: hgt } = source;
     if (tab !== '3d') {
@@ -312,6 +355,7 @@ export function depthMapStudio(ws) {
       for (let i = 0; i < w * hgt; i++) { const v = Math.round(processed[i] * 255); im.data[i * 4] = v; im.data[i * 4 + 1] = v; im.data[i * 4 + 2] = v; im.data[i * 4 + 3] = 255; }
       ctx.putImageData(im, 0, 0);
     } else draw3d();
+    applyZoom();
     // histogram of the processed relief
     const bins = new Uint32Array(256);
     let peak = 1;
@@ -378,7 +422,7 @@ export function depthMapStudio(ws) {
   }
   function render3d() {
     if (!renderer || !alive) return;
-    const r = 4.4;
+    const r = zoom.dist;
     camera.position.set(r * Math.sin(rot.b) * Math.sin(rot.a), -r * Math.sin(rot.b) * Math.cos(rot.a), r * Math.cos(rot.b));
     camera.lookAt(0, 0, 0.1);
     renderer.render(scene, camera);
@@ -467,5 +511,5 @@ export function depthMapStudio(ws) {
   m.el.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
   m.el.addEventListener('drop', async (e) => { e.preventDefault(); e.stopPropagation(); const f = e.dataTransfer.files[0]; if (f) loadFile({ name: f.name, data: await f.arrayBuffer() }); });
   update();
-  return { loadFile, useDesign, options: o, getProcessed: () => processed, getSource: () => source, addSlices: addSlicesToLaser, setTab: (t) => { tab = t; o.posterize = t === 'slices'; update(); }, close: () => m.close() };
+  return { loadFile, useDesign, options: o, getProcessed: () => processed, getSource: () => source, getZoom: () => ({ ...zoom }), addSlices: addSlicesToLaser, setTab: (t) => { tab = t; o.posterize = t === 'slices'; update(); }, close: () => m.close() };
 }

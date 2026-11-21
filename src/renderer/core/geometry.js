@@ -176,30 +176,91 @@ function buildGroup(node) {
 }
 
 export const ROUND_LIMIT = 6000; // triangles; beyond this the operation takes too long to be usable
+export const SLOW_ROUND_LIMIT = 1200; // the same, for the slower jobs: top-only, bottom-only and inside corners
+export const EDGE_SETS = ['all', 'upper', 'top', 'bottom', 'sides'];
+const edgeSet = (v) => (EDGE_SETS.includes(v) ? v : 'all');
 
 /**
- * Round (or bevel) every outside edge without removing material: the solid is shrunk
- * towards its centre by the radius and then grown back by a ball, so the overall size is
- * unchanged. Holes and gaps end up slightly tighter. Returns the input when it cannot run.
+ * Round (or bevel) only the edges around the top, leaving upright edges sharp. Works down
+ * through the top `r` mm in a few layers; in each one the solid is cut back from its own
+ * outline by the distance a quarter circle (or a 45 degree slope) needs at that depth.
  */
-function roundEdges(base, radius, style) {
+function roundTop(api, s, k, r, bevel) {
+  const { Manifold } = api;
+  const bb = s.boundingBox(), top = bb.max[2], pad = r + 1;
+  const layers = bevel ? 1 : 4, h = r / layers, eps = Math.min(0.02, h / 5);
+  const inset = (depth) => (bevel ? r - depth : r - Math.sqrt(Math.max(0, r * r - (r - depth) * (r - depth))));
+  const w = bb.max[0] - bb.min[0] + 2 * pad, d = bb.max[1] - bb.min[1] + 2 * pad;
+  const cuts = [];
+  for (let i = 0; i < layers; i++) {
+    // everything outside the solid, in a thin sheet at the bottom of this layer
+    const sheet = k(k(Manifold.cube([w, d, eps])).translate(bb.min[0] - pad, bb.min[1] - pad, top - (i + 1) * h));
+    const outside = k(sheet.subtract(s));
+    if (outside.isEmpty()) continue;
+    const cone = k(Manifold.cylinder(h, Math.max(1e-3, inset((i + 1) * h)), Math.max(1e-3, inset(i * h)), bevel ? 8 : 12));
+    cuts.push(k(outside.minkowskiSum(cone)));
+  }
+  if (!cuts.length) return s;
+  return k(s.subtract(cuts.length === 1 ? cuts[0] : k(Manifold.union(cuts))));
+}
+
+/**
+ * Round (or bevel) outside edges without changing the overall size. `edges` picks which:
+ * 'all', 'upper' (everything but the bottom, so the part still sits flat), 'top',
+ * 'bottom' or 'sides' (upright edges only). Up is the shape's own Z axis.
+ * All but top and bottom shrink the solid and grow it back with a rounded tool, so holes
+ * and gaps end up slightly tighter. Returns the input when it cannot run.
+ */
+function roundEdges(base, radius, style, edges) {
+  edges = edgeSet(edges);
+  const bevel = style === 'bevel';
+  const slow = edges === 'top' || edges === 'bottom';
+  const limit = slow ? SLOW_ROUND_LIMIT : ROUND_LIMIT;
   const tris = triCount(base);
-  stats.roundSkipped = null;
-  if (tris < 4 || tris > ROUND_LIMIT) { stats.roundSkipped = tris > ROUND_LIMIT ? 'detail' : 'empty'; return base.clone(); }
+  if (tris < 4 || tris > limit) { stats.roundSkipped = tris > limit ? 'detail' : 'empty'; return base.clone(); }
   const bb = base.boundingBox;
   const size = [bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z];
   const c = [(bb.max.x + bb.min.x) / 2, (bb.max.y + bb.min.y) / 2, (bb.max.z + bb.min.z) / 2];
-  const r = Math.min(radius, Math.min(...size) / 2 - 0.05);
+  const room = edges === 'all' ? Math.min(...size) / 2 : edges === 'sides' ? Math.min(size[0], size[1]) / 2 : Math.min(size[0] / 2, size[1] / 2, size[2]);
+  const r = Math.min(radius, room - 0.05);
   if (!(r > 0.01)) return base.clone();
   const flat = base.index ? base.toNonIndexed() : base;
   const out = withSolid(flat, (api, s, k) => {
-    const ball = k(api.Manifold.sphere(r, style === 'bevel' ? 4 : 8));
-    const scale = size.map((v) => (v - 2 * r) / v);
-    const small = k(k(k(s.translate(-c[0], -c[1], -c[2])).scale(scale)).translate(c[0], c[1], c[2]));
-    return small.minkowskiSum(ball);
+    const { Manifold } = api;
+    if (edges === 'top') return k(roundTop(api, s, k, r, bevel)).simplify(0.005);
+    if (edges === 'bottom') return k(k(roundTop(api, k(s.mirror([0, 0, 1])), k, r, bevel)).mirror([0, 0, 1])).simplify(0.005);
+    // the tool that is swept around the shrunken solid, and how much height it adds
+    let tool, anchorZ = c[2], grow = 2 * r;
+    if (edges === 'upper') { tool = k(k(Manifold.sphere(r, bevel ? 4 : 8)).trimByPlane([0, 0, 1], 0)); anchorZ = bb.min.z; grow = r; }
+    else if (edges === 'sides') { grow = 0.02; tool = k(Manifold.cylinder(grow, r, r, bevel ? 4 : 16)); anchorZ = bb.min.z; }
+    else tool = k(Manifold.sphere(r, bevel ? 4 : 8));
+    const scale = [(size[0] - 2 * r) / size[0], (size[1] - 2 * r) / size[1], (size[2] - grow) / size[2]];
+    const small = k(k(k(s.translate(-c[0], -c[1], -anchorZ)).scale(scale)).translate(c[0], c[1], anchorZ));
+    return small.minkowskiSum(tool);
   });
   if (!out || !out.attributes.position.count) { stats.roundSkipped = 'open'; return base.clone(); }
-  return toCreasedNormals(out, style === 'bevel' ? 0.2 : CREASE);
+  return toCreasedNormals(out, bevel ? 0.2 : CREASE);
+}
+
+/**
+ * Fill every inside corner with a fillet (or a 45 degree slope): the solid is grown by a
+ * ball and then cut back by the same ball, which leaves flat faces and outside edges where
+ * they were. Slots and holes narrower than twice the radius close up.
+ */
+function filletCorners(base, radius, style) {
+  const bevel = style === 'bevel';
+  const tris = triCount(base);
+  if (tris < 4 || tris > SLOW_ROUND_LIMIT) { stats.roundSkipped = tris > SLOW_ROUND_LIMIT ? 'detail' : 'empty'; return base.clone(); }
+  const r = Math.min(radius, 5);
+  if (!(r > 0.01)) return base.clone();
+  const flat = base.index ? base.toNonIndexed() : base;
+  const out = withSolid(flat, (api, s, k) => {
+    const ball = k(api.Manifold.sphere(r, bevel ? 4 : 8));
+    // tidying the grown solid first makes cutting it back several times faster
+    return k(k(k(s.minkowskiSum(ball)).simplify(0.005)).minkowskiDifference(ball)).simplify(0.005);
+  });
+  if (!out || !out.attributes.position.count) { stats.roundSkipped = 'open'; return base.clone(); }
+  return toCreasedNormals(out, bevel ? 0.2 : CREASE);
 }
 
 function emptyGeometry() {
@@ -217,7 +278,10 @@ export function getGeometry(node) {
     return g;
   }
   if (node.round > 0) {
-    g = finalize(roundEdges(getGeometry({ ...node, round: 0 }), node.round, node.roundStyle));
+    // outside edges go last, on top of any filled inside corners
+    g = finalize(roundEdges(getGeometry({ ...node, round: 0 }), node.round, node.roundStyle, node.roundEdges));
+  } else if (node.fillet > 0) {
+    g = finalize(filletCorners(getGeometry({ ...node, fillet: 0 }), node.fillet, node.roundStyle));
   } else if (node.type === 'group') {
     g = finalize(buildGroup(node));
   } else {

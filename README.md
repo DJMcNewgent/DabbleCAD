@@ -165,7 +165,9 @@ storage instead and are separate from the desktop library.
 - Union, intersection, bundles, and ungrouping. Groups are built by a solid-modelling
   kernel, so the result is a closed, printable mesh.
 - Edit the parts of a group without ungrouping: double-click it, change things, press Done.
-- Round or bevel the outside edges of any shape or group.
+- Round or bevel the outside edges of any shape or group: all of them, all but the bottom,
+  top only, bottom only, or sides only.
+- Fill inside corners with a fillet or a slope, which makes brackets and ribs stronger.
 - Resize, rotate, lift, mirror, align, and type exact dimensions.
 - Drag a box on empty space to select every shape it touches; Shift adds to the selection.
 - Workplanes on faces, a ruler, notes, patterns, duplicate-and-repeat, and Cruise.
@@ -236,7 +238,8 @@ leave an operating laser unattended.
 ### Depth Map Studio
 
 Create a height map from an STL, an image, or the current 3D design. Adjust levels,
-gamma, output range, smoothing, and inversion; inspect a 3D relief preview; get
+gamma, output range, smoothing, and inversion; inspect a 3D relief preview; zoom
+either view with the scroll wheel (drag to pan, double-click to reset); get
 slice/spot-size guidance; and export 16-bit PNG, 8-bit PNG, or slice masks. A depth
 map can go onto the bed as one grayscale engraving, or as **slice passes**: one mask
 per pass, each on its own layer, so the laser cuts the relief step by step.
@@ -298,6 +301,8 @@ DabbleCAD is an early project, not a claim of production certification.
 
 - Rounding or bevelling edges keeps the overall size but makes holes and gaps
   slightly tighter, and very detailed shapes are refused because they take too long.
+- Edges are chosen as a set, not picked one at a time. Top and bottom follow the shape's
+  own up direction, and filled inside corners close any slot narrower than twice their size.
 - The print check is a quick geometric estimate, not a slicer. Imported meshes that
   are not closed solids fall back to a simpler grouping method.
 - Generator threads use a rounded printable profile, not a machined ISO thread. Print

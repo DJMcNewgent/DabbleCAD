@@ -144,6 +144,73 @@ ed.select([d1.id]);
   ed.patchSelection({ round: 1, roundStyle: 'bevel' });
   check('bevel-edges', lib.solid.inspectSolid(lib.geometry.getGeometry(ed.node(rb.id))).closed);
   ed.deleteSelection();
+  // which outside edges: a 20 mm box keeps its size, and only the chosen edges are softened
+  {
+    const G = lib.geometry, wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const eb = add('box', 400, -200); ed.select([eb.id]);
+    out.edgeMs = {};
+    const shape = (patch) => {
+      const t0 = performance.now();
+      ed.patchSelection({ round: 0, fillet: 0, roundStyle: 'round', roundEdges: 'all', ...patch });
+      const g = G.getGeometry(ed.node(ed.selectedNodes()[0].id)), p = g.attributes.position, b = g.boundingBox;
+      out.edgeMs[JSON.stringify(patch)] = Math.round(performance.now() - t0);
+      // widest x span of the points on the floor and on the roof, and whether a square corner survives low down
+      let lo = [1e9, -1e9], hi = [1e9, -1e9], corner = false;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+        if (z < b.min.z + 0.01) { lo = [Math.min(lo[0], x), Math.max(lo[1], x)]; if (Math.abs(x - b.min.x) < 0.01 && Math.abs(y - b.min.y) < 0.01) corner = true; }
+        if (z > b.max.z - 0.01) hi = [Math.min(hi[0], x), Math.max(hi[1], x)];
+      }
+      return { closed: lib.solid.inspectSolid(g).closed, vol: ed.measureNodes(ed.selectedNodes()).volume, size: [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z], floor: lo[1] - lo[0], roof: hi[1] - hi[0], corner };
+    };
+    const same = (r) => r.closed && r.size.every((v) => near(v, 20, 0.05));
+    const top = shape({ round: 2, roundEdges: 'top' });
+    check('edges-top', same(top) && near(top.floor, 20, 0.05) && near(top.roof, 16, 0.05) && top.corner && near(top.vol, 7925, 15), top);
+    const bottom = shape({ round: 2, roundEdges: 'bottom' });
+    check('edges-bottom', same(bottom) && near(bottom.floor, 16, 0.05) && near(bottom.roof, 20, 0.05) && near(bottom.vol, top.vol, 2), bottom);
+    const sides = shape({ round: 2, roundEdges: 'sides' });
+    check('edges-sides', same(sides) && near(sides.floor, 20, 0.05) && near(sides.roof, 20, 0.05) && !sides.corner && near(sides.vol, 7925, 15), sides);
+    const upper = shape({ round: 2, roundEdges: 'upper' });
+    check('edges-all-but-bottom', same(upper) && near(upper.floor, 20, 0.05) && near(upper.roof, 16, 0.05) && !upper.corner && upper.vol < sides.vol - 50, upper);
+    const all = shape({ round: 2 });
+    check('edges-all', same(all) && near(all.floor, 16, 0.05) && near(all.roof, 16, 0.05) && all.vol < upper.vol - 20, all);
+    const topBevel = shape({ round: 2, roundEdges: 'top', roundStyle: 'bevel' });
+    check('edges-top-bevel', same(topBevel) && near(topBevel.roof, 16, 0.05) && topBevel.corner && near(topBevel.vol, 7850.7, 3), topBevel);
+    // a box has no inside corners, so filling them changes nothing
+    const plain = shape({ fillet: 2 });
+    check('fillet-box-unchanged', same(plain) && near(plain.vol, 8000, 1), plain);
+    // the dropdown in the inspector drives the same setting
+    ed.patchSelection({ round: 1, roundEdges: 'all' }); await wait(60);
+    const which = document.querySelector('select[aria-label="Which outside edges"]');
+    check('edges-ui', !!which && !!document.querySelector('input[aria-label="Inside corners (mm)"]') && which.options.length === 5);
+    if (which) { which.value = 'sides'; which.dispatchEvent(new Event('change')); await wait(250); }
+    check('edges-ui-applies', ed.node(eb.id).roundEdges === 'sides', ed.node(eb.id).roundEdges);
+    ed.select([eb.id]); ed.deleteSelection();
+
+    // inside corners: an L-shaped bracket gains a fillet where the two plates meet and nothing else moves
+    const la = add('box', 400, -200); ed.select([la.id]); ed.setSize('x', 40); ed.setSize('z', 5);
+    const lb = add('box', 400, -200); ed.select([lb.id]); ed.setSize('x', 5); ed.setSize('z', 30);
+    ed.select([la.id, lb.id]); await ed.group('union');
+    const lid = ed.selectedNodes()[0].id;
+    const bracket = () => { const g = G.getGeometry(ed.node(lid)), b = g.boundingBox; return { closed: lib.solid.inspectSolid(g).closed, vol: ed.measureNodes([ed.node(lid)]).volume, size: [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z].map((v) => Math.round(v * 100) / 100) }; };
+    const l0 = bracket();
+    let t0 = performance.now(); ed.patchSelection({ fillet: 1.5 }); const l1 = bracket(); out.edgeMs.fillet = Math.round(performance.now() - t0);
+    check('fillet-round', l1.closed && near(l0.vol, 6500, 1) && l1.vol - l0.vol > 6 && l1.vol - l0.vol < 15 && JSON.stringify(l1.size) === JSON.stringify(l0.size), [l0, l1]);
+    ed.patchSelection({ fillet: 1.5, roundStyle: 'bevel' }); const l2 = bracket();
+    check('fillet-bevel', l2.closed && l2.vol - l0.vol > 18 && l2.vol - l0.vol < 25 && JSON.stringify(l2.size) === JSON.stringify(l0.size), l2);
+    ed.patchSelection({ fillet: 1.5, round: 1, roundEdges: 'sides', roundStyle: 'round' }); const l3 = bracket();
+    check('fillet-with-outside', l3.closed && JSON.stringify(l3.size) === JSON.stringify(l0.size), l3);
+    if (window.__shotDir && window.dabbleNative) { ed.patchSelection({ fillet: 3, round: 2, roundEdges: 'top' }); vp.renderNow(); await wait(400); await window.dabbleNative.smokeShot(window.__shotDir + '/edges.png'); }
+    ed.patchSelection({ fillet: 0, round: 0 });
+    ed.undo(); check('fillet-undo', ed.node(lid).fillet > 0, ed.node(lid).fillet);
+    ed.select([lid]); ed.deleteSelection();
+    // too much detail is refused, and says why
+    const ball = add('sphere', 400, -200); ed.select([ball.id]);
+    const ballTris = G.getGeometry(ed.node(ball.id)).attributes.position.count / 3;
+    G.stats.roundSkipped = null; ed.patchSelection({ fillet: 1 });
+    check('fillet-refuses-detail', ballTris <= G.SLOW_ROUND_LIMIT || G.stats.roundSkipped === 'detail', [ballTris, G.stats.roundSkipped]);
+    ed.deleteSelection();
+  }
   for (const c of CATALOG.filter((c) => c.cat === 'generators')) {
     const gi = lib.solid.inspectSolid(lib.geometry.getGeometry(nodeFromCatalog(c)));
     check('generator-' + c.id, gi.closed && gi.volume > 50, gi);

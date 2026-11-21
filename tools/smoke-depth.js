@@ -47,8 +47,31 @@ check('design-source', src && near(src.widthMM, 60, 0.5) && near(src.depthMM, 20
 const c = Math.floor(src.h / 2) * src.w + Math.floor(src.w / 2);
 check('dome-top', near(pr[c], 1, 0.03) && pr[2] === 0 && near(pr[Math.floor(src.h / 2) * src.w + Math.round(src.w * 0.06)], 0.2, 0.03), [pr[c], pr[Math.floor(src.h / 2) * src.w + Math.round(src.w * 0.06)]]);
 await shot('dm-map');
+// scroll wheel: zooms the flat view about the pointer, the badge resets it
+{
+  const stage = document.querySelector('.dm-stage'), cvs = stage.querySelector('.dm-canvas'), badge = stage.querySelector('.dm-zoom'), r = stage.getBoundingClientRect();
+  const at = { clientX: r.left + r.width / 2 + 60, clientY: r.top + r.height / 2 - 40, bubbles: true, cancelable: true };
+  const under = () => { const b = cvs.getBoundingClientRect(); return [(at.clientX - b.left) / b.width, (at.clientY - b.top) / b.height]; };
+  const u0 = under();
+  for (let i = 0; i < 4; i++) stage.dispatchEvent(new WheelEvent('wheel', { ...at, deltaY: -300 }));
+  const z = studio.getZoom(), u1 = under();
+  check('wheel-zoom-in', z.s > 1.5 && cvs.style.transform.includes('scale') && !badge.hidden && near(u0[0], u1[0], 0.01) && near(u0[1], u1[1], 0.01), [z, u0, u1]);
+  await shot('dm-zoomed');
+  for (let i = 0; i < 12; i++) stage.dispatchEvent(new WheelEvent('wheel', { ...at, deltaY: 300 }));
+  check('wheel-zoom-out', studio.getZoom().s === 1 && cvs.style.transform === '' && badge.hidden, studio.getZoom());
+  stage.dispatchEvent(new WheelEvent('wheel', { ...at, deltaY: -300 })); badge.click();
+  check('zoom-reset', studio.getZoom().s === 1 && badge.hidden, studio.getZoom());
+}
 studio.setTab('slices'); await shot('dm-slices');
 studio.setTab('3d'); [...document.querySelectorAll('.modal .segmented .btn')].find((b) => b.textContent === '3D preview').click(); await wait(400); await shot('dm-3d');
+{
+  const stage = document.querySelector('.dm-stage'), d0 = studio.getZoom().dist;
+  stage.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true, cancelable: true }));
+  check('wheel-zoom-3d', studio.getZoom().dist < d0, [d0, studio.getZoom().dist]);
+  await shot('dm-3d-zoomed');
+  stage.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  check('zoom-reset-3d', studio.getZoom().dist === d0, studio.getZoom().dist);
+}
 out.advice = document.querySelector('.dm-advice').textContent.slice(0, 90);
 // STL route: export the design as STL and load it into the studio
 const stl = await lib.io.exportModel(ed, 'stl', {});

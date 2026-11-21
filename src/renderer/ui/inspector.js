@@ -1,6 +1,6 @@
 // Shape inspector: Solid / Hole, colour, shape parameters, numeric position / size / rotation.
 import { h, clear, button, icon, toast } from './dom.js';
-import { stats as geoStats } from '../core/geometry.js';
+import { stats as geoStats, EDGE_SETS } from '../core/geometry.js';
 import { KINDS, kindName } from '../core/shapes.js';
 import { PALETTE } from '../core/doc.js';
 import { listFontNames, ensureFont } from '../core/fonts.js';
@@ -82,33 +82,44 @@ export class Inspector {
     this.updateNumbers();
   }
 
-  // Round or bevel the outside edges of any shape or group (applied when the slider is released).
+  // Round or bevel the outside edges, and fill the inside corners, of any shape or group
+  // (applied when a slider is released).
   _edgesSection(nodes) {
     const ed = this.editor, first = nodes[0];
-    const value = first.round || 0;
-    const range = h('input', { type: 'range', min: 0, max: 5, step: 0.1, value });
-    const num = h('input', { class: 'input', type: 'number', min: 0, max: 5, step: 0.1, value });
-    const note = h('div', { class: 'insp-note' }, 'Softens every outside edge. Overall size stays the same; holes and gaps get slightly tighter. Complex shapes can take a few seconds.');
-    const apply = async (v) => {
-      v = Math.min(5, Math.max(0, v));
-      if (!isFinite(v)) return;
-      range.value = v; num.value = v;
+    const why = (reason) => (reason === 'detail' ? 'This shape has too much detail for that' : 'This shape is not a closed solid, so its edges cannot be changed');
+    const run = async (patch, changed) => {
       geoStats.roundSkipped = null;
-      await ed._busy(() => ed.patchSelection({ round: v }));
-      const why = geoStats.roundSkipped;
-      if (v > 0 && why) toast(why === 'detail' ? 'This shape has too much detail to round' : 'This shape is not a closed solid, so its edges cannot be rounded', 'warn', 4000);
+      await ed._busy(() => ed.patchSelection(patch));
+      if (changed && geoStats.roundSkipped) toast(why(geoStats.roundSkipped), 'warn', 4000);
     };
-    range.addEventListener('input', () => { num.value = range.value; });
-    range.addEventListener('change', () => { apply(parseFloat(range.value)); range.blur(); });
-    num.addEventListener('change', () => apply(parseFloat(num.value)));
-    num.addEventListener('keydown', (e) => e.stopPropagation());
-    const style = h('select', { class: 'input' }, h('option', { value: 'round' }, 'Round'), h('option', { value: 'bevel' }, 'Bevel'));
-    style.value = first.roundStyle === 'bevel' ? 'bevel' : 'round';
-    style.addEventListener('change', () => ed._busy(() => ed.patchSelection({ roundStyle: style.value })));
+    const slider = (key, label, title) => {
+      const value = first[key] || 0;
+      const range = h('input', { type: 'range', min: 0, max: 5, step: 0.1, value, 'aria-label': label });
+      const num = h('input', { class: 'input', type: 'number', min: 0, max: 5, step: 0.1, value, 'aria-label': label });
+      const apply = (v) => {
+        v = Math.min(5, Math.max(0, v));
+        if (!isFinite(v)) return;
+        range.value = v; num.value = v;
+        return run({ [key]: v }, v > 0);
+      };
+      range.addEventListener('input', () => { num.value = range.value; });
+      range.addEventListener('change', () => { apply(parseFloat(range.value)); range.blur(); });
+      num.addEventListener('change', () => apply(parseFloat(num.value)));
+      num.addEventListener('keydown', (e) => e.stopPropagation());
+      return h('div', { class: 'param', title }, h('label', {}, label), range, num);
+    };
+    const pick = (key, label, options, value) => {
+      const sel = h('select', { class: 'input', 'aria-label': label, style: { gridColumn: '1 / 3', textAlign: 'left' } }, ...options.map(([v, text]) => h('option', { value: v }, text)));
+      sel.value = value;
+      sel.addEventListener('change', () => run({ [key]: sel.value }, first.round > 0 || first.fillet > 0));
+      return h('div', { class: 'param' }, h('label', {}, label), sel);
+    };
     return this._section('edges', 'Edges', [
-      h('div', { class: 'param' }, h('label', {}, 'Radius'), range, num),
-      h('div', { class: 'param' }, h('label', {}, 'Style'), style),
-      note,
+      slider('round', 'Outside edges (mm)', 'Rounds the edges that stick out'),
+      pick('roundEdges', 'Which outside edges', [['all', 'All'], ['upper', 'All but the bottom'], ['top', 'Top only'], ['bottom', 'Bottom only'], ['sides', 'Sides only']], EDGE_SETS.includes(first.roundEdges) ? first.roundEdges : 'all'),
+      slider('fillet', 'Inside corners (mm)', 'Fills the corners where two faces meet, which makes a part stronger'),
+      pick('roundStyle', 'Style', [['round', 'Round'], ['bevel', 'Bevel']], first.roundStyle === 'bevel' ? 'bevel' : 'round'),
+      h('div', { class: 'insp-note' }, 'Overall size stays the same. Top and bottom follow the shape, so they turn with it. Holes and gaps can get slightly tighter, and inside corners close any slot narrower than twice their size. Detailed shapes can take a few seconds.'),
     ]);
   }
 
