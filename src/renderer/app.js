@@ -10,6 +10,8 @@ import { buildVoxels, disposeVoxels } from './view/voxels.js';
 import { Editor } from './editor.js';
 import { Inspector } from './ui/inspector.js';
 import { ShapesPanel } from './ui/shapespanel.js';
+import { MeshPanel } from './ui/meshpanel.js';
+import { MeshMode } from './view/sculpt.js';
 import { Dashboard } from './ui/dashboard.js';
 import { scribbleDialog } from './ui/scribble.js';
 import { sketchDialog } from './ui/sketch.js';
@@ -19,6 +21,7 @@ import { initFonts, ensureFont } from './core/fonts.js';
 import { kindName } from './core/shapes.js';
 import { importFiles, exportModel, IMPORT_FILTERS, extrusionNode, dataUrlToBytes } from './core/io.js';
 import { LaserWorkspace } from './laser/workspace.js';
+import { CncWorkspace } from './cnc/workspace.js';
 
 const SNAPS = [0, 0.1, 0.25, 0.5, 1, 2, 5];
 // DabbleCAD's own mark: a "D" with a splash dot.
@@ -35,6 +38,7 @@ export class App {
     this.saveTimer = null;
     this.viewMode = 'design';
     this._build();
+    await this.shapes.fontsReady;
     this._wire();
     await this._openInitial();
     const boot = document.getElementById('boot');
@@ -88,8 +92,9 @@ export class App {
 
     // top-level workspaces sit directly beneath the DabbleCAD brand
     this.wsTabs = {};
-    const wsTab = (id, label, ic, tip) => { const b = button({ label, icon: ic, title: tip, size: 17, cls: 'ws-tab', onClick: () => this.setViewMode(id === 'laser' ? 'laser' : this.last3d || 'design') }); b.dataset.mode = id === 'laser' ? 'laser' : 'workspace-3d'; this.wsTabs[id] = b; return b; };
-    const workspaceBar = h('div', { class: 'workspace-bar', role: 'tablist', 'aria-label': 'Workspace' }, wsTab('3d', '3D Design', 'cube', '3D design workspace'), wsTab('laser', 'Laser', 'laser', 'Laser workspace: draw, set up cuts and engraves, and run your laser'));
+    const wsTab = (id, label, ic, tip) => { const b = button({ label, icon: ic, title: tip, size: 17, cls: 'ws-tab', onClick: () => this.setViewMode(id === '3d' ? this.last3d || 'design' : id) }); b.dataset.mode = id === '3d' ? 'workspace-3d' : id; this.wsTabs[id] = b; return b; };
+    const workspaceBar = h('div', { class: 'workspace-bar', role: 'tablist', 'aria-label': 'Workspace' }, wsTab('3d', '3D Design', 'cube', '3D design workspace'), wsTab('laser', 'Laser', 'laser', 'Laser workspace: draw, set up cuts and engraves, and run your laser'),
+      wsTab('cnc', 'CNC', 'cncMachine', 'CNC workspace: draw, choose what to cut, preview it in 3D and run your CNC router'));
     this.wsTabs['3d'].classList.add('active');
     const toolbar = h('div', { class: 'toolbar', role: 'toolbar', 'aria-label': 'Editing tools' },
       tb('outliner', 'list', 'Objects list', () => this.toggleOutliner()), h('span', { class: 'sep' }),
@@ -120,7 +125,8 @@ export class App {
     this.viewEl = h('div', { class: 'viewport' });
     this.side = h('div', { class: 'side' });
     this.laserRoot = h('div', { class: 'laser-root' });
-    root.append(topbar, workspaceBar, toolbar, h('div', { class: 'main' }, this.outliner, this.viewEl, this.side), this.laserRoot);
+    this.cncRoot = h('div', { class: 'laser-root cnc-root' });
+    root.append(topbar, workspaceBar, toolbar, h('div', { class: 'main' }, this.outliner, this.viewEl, this.side), this.laserRoot, this.cncRoot);
 
     this.viewport = new Viewport(this.viewEl, this.settings);
     this.editor = new Editor(this.viewport, this.settings);
@@ -152,11 +158,35 @@ export class App {
     this.viewEl.append(this.inspectorEl, this.banner, this.status, this.gridbar, this.voxelBar, h('div', { class: 'busy-pill' }, 'Working…'));
 
     this.inspector = new Inspector(this.editor, this.inspectorEl, this);
-    this.shapes = new ShapesPanel(this.editor, this.side, this);
+    // the side panel has two tabs: the shape library and the mesh tools
+    this.sideTabs = {};
+    this.sidePanes = { shapes: h('div', { class: 'side-pane' }), mesh: h('div', { class: 'side-pane mesh-pane' }) };
+    const sideTab = (id, label, ic, tip) => { const b = button({ label, icon: ic, title: tip, size: 16, cls: 'side-tab', onClick: () => this.showSideTab(id) }); this.sideTabs[id] = b; return b; };
+    this.side.append(h('div', { class: 'side-tabs', role: 'tablist', 'aria-label': 'Side panel' }, sideTab('shapes', 'Shapes', 'cube', 'Shape library'), sideTab('mesh', 'Mesh tools', 'mesh', 'Sculpt, repair, cut, hollow and analyse meshes')), this.sidePanes.shapes, this.sidePanes.mesh);
+    this.meshMode = new MeshMode(this);
+    this.shapes = new ShapesPanel(this.editor, this.sidePanes.shapes, this);
+    this.meshPanel = new MeshPanel(this, this.sidePanes.mesh);
+    this.showSideTab('shapes');
     this.dashboard = new Dashboard(this);
     this.laser = new LaserWorkspace(this, this.laserRoot);
+    this.cnc = new CncWorkspace(this, this.cncRoot);
     this._syncThemeButton();
     this._syncProjection();
+  }
+
+  showSideTab(id) {
+    for (const [key, pane] of Object.entries(this.sidePanes)) { pane.classList.toggle('open', key === id); this.sideTabs[key].classList.toggle('active', key === id); }
+    if (id === 'mesh') this.meshPanel.render();
+  }
+
+  /** Leave sculpt / face-selection mode, keeping the changes or not. */
+  async exitMeshMode(accept) {
+    const mode = this.meshMode;
+    if (!mode.active) return;
+    if (!accept && mode.dirty && !(await confirmDialog('Discard mesh changes?', 'Everything done since this shape was opened for editing will be lost.', 'Discard', true))) return;
+    mode.exit(accept);
+    this._updateBanner();
+    this._updateButtons();
   }
 
   // ---------------------------------------------------------------- wiring
@@ -195,6 +225,7 @@ export class App {
       if (!files.length) return;
       // in the laser workspace the drop belongs to the laser canvas, not the hidden 3D design
       if (this.viewMode === 'laser') this.laser.importData(files);
+      else if (this.viewMode === 'cnc') this.cnc.importData(files);
       else this.importData(files);
     });
     window.addEventListener('blur', () => this.flushSave());
@@ -226,10 +257,15 @@ export class App {
     walk(doc.nodes, (n) => { if (n.kind === 'text' && n.params.font) fonts.add(n.params.font); });
     const laserFonts = (list) => { for (const x of list || []) { if (x.type === 'text' && x.font) fonts.add(x.font); if (x.children) laserFonts(x.children); } };
     if (doc.laser) laserFonts(doc.laser.shapes);
+    if (doc.cnc) laserFonts(doc.cnc.shapes);
     for (const f of fonts) await ensureFont(f);
-    if (this.viewMode !== 'laser') this.setViewMode('design', true);
+    if (this.meshMode.active) this.meshMode.exit(false);
+    this.meshPanel.setSlice(false);
+    if (this.viewMode !== 'laser' && this.viewMode !== 'cnc') this.setViewMode('design', true);
     this.laser.load(doc.laser);
     doc.laser = this.laser.getDoc();
+    this.cnc.load(doc.cnc);
+    doc.cnc = this.cnc.getDoc();
     this.designId = id;
     this.editor.load(doc);
     this.nameInput.value = doc.name;
@@ -250,6 +286,9 @@ export class App {
    * With auto-save off it asks Save / Don't save / Cancel; a failed save also prevents leaving.
    */
   async confirmLeave(onPrompt) {
+    if (this.meshMode.active) { this.meshMode.exit(true); this._updateBanner(); } // keep unfinished mesh edits rather than lose them
+    // a group left open would be saved as loose parts; if it cannot be rebuilt, leaving must still be possible
+    if (this.editor.editing) { try { await this.editor.exitGroup(); } catch (err) { console.error(err); } }
     if (this.settings.autosave !== false || !this.dirty || !this.designId) return this.flushSave();
     if (onPrompt) onPrompt();
     const choice = await saveChangesDialog(this.editor.doc.name);
@@ -359,6 +398,7 @@ export class App {
     if (!this.dirty || !this.designId) return true;
     if (this.settings.autosave === false && !force) return false;
     this.editor.doc.laser = this.laser.getDoc();
+    this.editor.doc.cnc = this.cnc.getDoc();
     if (this.gizmo.dragging) { this.saveTimer = setTimeout(() => this.flushSave(force), 800); return false; }
     this.dirty = false;
     try {
@@ -391,6 +431,7 @@ export class App {
 
   async importData(files) {
     const ed = this.editor;
+    if (this.meshMode.active) await this.exitMeshMode(true);
     const res = await ed._busy(() => importFiles(files, { fitTo: Math.max(ed.doc.workplane.width, ed.doc.workplane.length) }));
     const fonts = new Set();
     walk(res.nodes, (n) => { if (n.kind === 'text' && n.params.font) fonts.add(n.params.font); });
@@ -508,6 +549,7 @@ export class App {
     document.documentElement.dataset.theme = theme;
     this.viewport.setTheme(theme);
     platform.setSettings({ theme });
+    this.cnc.themeChanged();
     this._syncThemeButton();
   }
 
@@ -549,16 +591,21 @@ export class App {
 
   setViewMode(mode, silent = false) {
     if (mode === this.viewMode) return;
+    if (this.meshMode.active) { this.meshMode.exit(true); this._updateBanner(); }
     this.viewMode = mode;
     for (const b of this.modeSeg.children) b.classList.toggle('active', b.dataset.mode === mode);
-    const laser = mode === 'laser', voxel = this._isVoxel();
+    // "laser" below means either flat workspace (laser or CNC): both replace the 3D view
+    const cnc = mode === 'cnc', laser = mode === 'laser' || cnc, voxel = this._isVoxel();
     if (!laser) this.last3d = mode;
     this.wsTabs['3d'].classList.toggle('active', !laser);
-    this.wsTabs.laser.classList.toggle('active', laser);
+    this.wsTabs.laser.classList.toggle('active', laser && !cnc);
+    this.wsTabs.cnc.classList.toggle('active', cnc);
     this.modeSeg.style.display = laser ? 'none' : '';
     this.editor.disabled = voxel || laser;
-    document.getElementById('app').classList.toggle('laser-mode', laser);
-    this.laser.setActive(laser);
+    document.getElementById('app').classList.toggle('laser-mode', laser && !cnc);
+    document.getElementById('app').classList.toggle('cnc-mode', cnc);
+    this.laser.setActive(laser && !cnc);
+    this.cnc.setActive(cnc);
     if (!laser) this.viewport.resize();
     if (voxel || laser) { this.editor.setTool('select'); this.editor.clearSelection(); }
     this.viewEl.classList.toggle('voxel-mode', voxel);
@@ -651,8 +698,14 @@ export class App {
       place: 'Click on the workplane to place the shape.',
       align: 'Click a dot to align. Click a selected shape to make it the anchor.',
       mirror: 'Click an arrow to flip the selection.',
+      pick: ed.picking ? ed.picking.prompt + (ed.picking.count > 1 ? ` (${ed.picking.points.length} of ${ed.picking.count})` : '') : '',
     }[ed.tool];
     clear(this.banner);
+    if (this.meshMode.active) {
+      this.banner.append(h('span', {}, this.meshMode.sub === 'sculpt' ? 'Sculpting: drag on the shape. Shift smooths, Alt reverses the brush.' : 'Selecting faces: drag to select, Shift removes, double-click takes a whole piece.'),
+        button({ label: 'Cancel', cls: 'btn-outline', onClick: () => this.exitMeshMode(false) }), button({ label: 'Done', cls: 'btn-primary', onClick: () => this.exitMeshMode(true) }));
+      return;
+    }
     if (text) this.banner.append(h('span', {}, text), h('kbd', {}, 'Esc'));
     else if (ed.editing) this.banner.append(h('span', {}, 'Editing a group: the solid shape shows the result, the faint shapes are its parts. Move, resize, add or delete parts, then finish.'), button({ label: 'Done', cls: 'btn-primary', onClick: () => ed.exitGroup() }));
     else if (ed.hasFrame) this.banner.append(h('span', {}, 'Temporary workplane active.'), button({ label: 'Reset workplane', cls: 'btn-outline', onClick: () => { ed.setFrame(null); this._updateBanner(); } }));
@@ -715,6 +768,11 @@ export class App {
       { label: locked ? 'Unlock' : 'Lock', icon: locked ? 'unlock' : 'lock', shortcut: 'Ctrl+L', onClick: () => ed.toggleLock() },
       { label: 'Hide', icon: 'eyeOff', shortcut: 'Ctrl+H', onClick: () => ed.hideSelection() },
       { label: 'Rename…', icon: 'pencil', disabled: n !== 1, onClick: () => this.renameNode(ed.selectedNodes()[0]) },
+      'sep',
+      { label: 'Sculpt', icon: 'mesh', disabled: movable.length !== 1, onClick: () => this.meshPanel.enter('sculpt') },
+      { label: 'Select faces', icon: 'select', disabled: movable.length !== 1, onClick: () => this.meshPanel.enter('select') },
+      { label: 'Mesh tools…', icon: 'mesh', onClick: () => this.showSideTab('mesh') },
+      'sep',
       { label: 'Save to Your Creations', icon: 'star', onClick: () => this.shapes.saveCreation() },
       { label: 'Details…', icon: 'stats', onClick: () => statsDialog(this) },
     ], at);
@@ -726,12 +784,26 @@ export class App {
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     if (document.querySelector('.modal-backdrop')) return;
     if (this.dashboard.isOpen) { if (e.key === 'Escape') this.dashboard.hide(); return; }
-    if (this.viewMode === 'laser') return; // the laser workspace has its own shortcuts
+    if (this.viewMode === 'laser' || this.viewMode === 'cnc') return; // these workspaces have their own shortcuts
     const ed = this.editor;
     const ctrl = e.ctrlKey || e.metaKey, shift = e.shiftKey;
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     const done = () => { e.preventDefault(); e.stopPropagation(); };
     const voxel = this._isVoxel();
+
+    if (this.meshMode.active) {
+      // sculpting has its own undo and a few keys of its own; only view keys pass through
+      const mode = this.meshMode;
+      if (key === 'Escape') { done(); this.exitMeshMode(false); return; }
+      if (key === 'Enter') { done(); this.exitMeshMode(true); return; }
+      if (ctrl && key === 'z') { done(); if (shift) mode.redo(); else mode.undo(); return; }
+      if (ctrl && key === 'y') { done(); mode.redo(); return; }
+      if (!ctrl && (key === '[' || key === ']')) { done(); mode.setBrush({ size: Math.max(0.05, mode.brush.size * (key === ']' ? 1.15 : 1 / 1.15)) }); return; }
+      if (ctrl && key === 'a' && mode.sub === 'select') { done(); mode.selectAll(); return; }
+      if (!ctrl && key === 'i' && mode.sub === 'select') { done(); mode.selectInvert(); return; }
+      if ((key === 'Delete' || key === 'Backspace') && mode.sub === 'select') { done(); mode.discard(); return; }
+      if (ctrl || !['f', 'o', 'Home', '+', '=', '-', '_', '?', 'F1'].includes(key)) return;
+    }
 
     // view + file shortcuts work in every mode
     if (ctrl && key === 's') { done(); this.saveNow(); return; }
@@ -750,6 +822,7 @@ export class App {
       done();
       if (ed.placing) ed.cancelPlace();
       else if (ed.tool !== 'select') ed.setTool('select');
+      else if (this.meshPanel.overlay || this.meshPanel.result) { this.meshPanel.result = null; this.meshPanel.clearOverlay(); this.meshPanel.render(); }
       else if (ed.selection.size) ed.clearSelection();
       else if (ed.editing) ed.exitGroup();
       return;

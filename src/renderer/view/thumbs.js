@@ -1,7 +1,7 @@
 // Renders small isometric previews of shapes for the shape panel (lazily, with a shared offscreen renderer).
 import * as THREE from 'three';
 import { getGeometry, expandBox } from '../core/geometry.js';
-import { mat4 } from '../core/doc.js';
+import { mat4, ownColors } from '../core/doc.js';
 
 let renderer = null;
 let scene, camera, mesh, holeMat, solidMat;
@@ -31,7 +31,7 @@ function render(node) {
   if (!renderer) setup();
   const geo = getGeometry(node);
   mesh.geometry = geo;
-  const multi = node.type === 'group' && node.multicolor && !!geo.attributes.color;
+  const multi = ownColors(node) && !!geo.attributes.color;
   solidMat.vertexColors = multi;
   solidMat.color.set(multi ? '#ffffff' : node.color);
   solidMat.needsUpdate = true;

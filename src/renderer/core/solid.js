@@ -161,7 +161,17 @@ export function bevelExtrude(polys, depth, bevel, segments = 2) {
   try {
     const { CrossSection, Manifold } = api;
     const base = keep(CrossSection.union(polys.map((p) => keep(new CrossSection([p.outer, ...(p.holes || [])], 'EvenOdd')))));
-    const b = Math.min(bevel, depth / 2 - 0.01);
+    let b = Math.min(bevel, depth / 2 - 0.01);
+    // a bevel wider than half a thin stroke would swallow that stroke's outer layers and leave letters at different
+    // heights: ease it off until every piece of the outline survives
+    if (b > 0.05) {
+      const count = (cs) => { const parts = cs.decompose(); for (const part of parts) keep(part); return parts.length; };
+      const pieces = count(base), kk = Math.max(2, Math.round(segments) + 2);
+      for (let guard = 0; b > 0.05 && guard < 20; guard++) {
+        if (count(keep(base.offset(-b * (1 - Math.sin(Math.PI / (4 * kk))), 'Miter', 2))) >= pieces) break;
+        b *= 0.8;
+      }
+    }
     const slabs = [];
     const EPS = 1e-3;
     if (b > 0.005) {

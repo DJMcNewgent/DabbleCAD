@@ -1,6 +1,6 @@
 // Editor: owns the document, selection, tools and every modelling command.
 import * as THREE from 'three';
-import { History, cloneNode, makeGroup, mat4, uid, newDoc } from './core/doc.js';
+import { History, cloneNode, makeGroup, mat4, uid, newDoc, ownColors } from './core/doc.js';
 import { getGeometry, expandBox, getEdges, measure, stats as geoStats } from './core/geometry.js';
 import { toast } from './ui/dom.js';
 
@@ -24,6 +24,13 @@ function makeHoleMaterial() {
   return m;
 }
 const holeMaterial = makeHoleMaterial();
+const normalMaterial = new THREE.MeshNormalMaterial();
+
+/** Surface looks that can be given to any shape (they change how it is drawn, not what is exported). */
+export const SHADERS = [
+  ['', 'Default'], ['clay', 'Matte clay'], ['glossy', 'Glossy'], ['flat', 'Faceted'], ['wire', 'Wireframe'], ['xray', 'X-ray'], ['normals', 'Normals'],
+];
+const SHADER_PROPS = { clay: { roughness: 1, metalness: 0 }, glossy: { roughness: 0.12, metalness: 0.2 }, flat: { flatShading: true }, wire: { wireframe: true }, xray: { xray: true }, normals: { normals: true } };
 
 const T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z);
 const S = (x, y, z) => new THREE.Matrix4().makeScale(x, y, z);
@@ -130,9 +137,7 @@ export class Editor extends Emitter {
     for (const [id, mesh] of this.meshes) {
       if (live.has(id)) continue;
       this.viewport.objects.remove(mesh);
-      if (mesh.material !== holeMaterial) mesh.material.dispose();
-      const solid = mesh.userData.solidMaterial;
-      if (solid && solid !== mesh.material) solid.dispose();
+      if (mesh.userData.solidMaterial) mesh.userData.solidMaterial.dispose();
       this.meshes.delete(id);
     }
     this._syncEditPreview();
@@ -192,15 +197,21 @@ export class Editor extends Emitter {
       mesh.castShadow = false;
       mesh.renderOrder = 2;
     } else {
-      mesh.material = solid;
-      const vc = node.type === 'group' && node.multicolor && !!geo.attributes.color;
+      const look = SHADER_PROPS[node.shader] || {};
+      mesh.material = look.normals ? normalMaterial : solid;
+      const vc = ownColors(node) && !!geo.attributes.color;
       if (solid.vertexColors !== vc) { solid.vertexColors = vc; solid.needsUpdate = true; }
       solid.color.set(vc ? '#ffffff' : node.color);
       // parts of a group that is open for editing are ghosts: the live result is drawn instead
-      const ghost = !!this.editing && !this.editing.outside.has(node.id);
-      const tr = !!node.transparent || ghost;
+      // (undo can bring the whole group back while it is still open: that one is drawn solid)
+      const ghost = !!this.editing && !this.editing.outside.has(node.id) && node.id !== this.editing.id;
+      const tr = !!node.transparent || ghost || !!look.xray;
       if (solid.transparent !== tr) { solid.transparent = tr; solid.needsUpdate = true; }
-      solid.opacity = ghost ? 0.14 : tr ? 0.45 : 1;
+      solid.opacity = ghost ? 0.14 : look.xray ? 0.3 : tr ? 0.45 : 1;
+      solid.roughness = look.roughness ?? 0.6;
+      solid.metalness = look.metalness ?? 0.03;
+      solid.wireframe = !!look.wireframe;
+      if (solid.flatShading !== !!look.flatShading) { solid.flatShading = !!look.flatShading; solid.needsUpdate = true; }
       solid.depthWrite = !tr;
       solid.side = mesh.matrix.determinant() < 0 || tr ? THREE.DoubleSide : THREE.FrontSide;
       mesh.castShadow = !tr;
@@ -334,7 +345,8 @@ export class Editor extends Emitter {
     if (this.placing && tool !== 'place') this.cancelPlace();
     this.tool = this.tool === tool && tool !== 'select' && tool !== 'place' ? 'select' : tool;
     if (this.tool !== 'align') this.alignAnchor = null;
-    this.viewport.canvas.style.cursor = ['workplane', 'ruler', 'note'].includes(this.tool) ? 'crosshair' : '';
+    if (this.picking && this.tool !== 'pick') { const p = this.picking; this.picking = null; p.done(null); }
+    this.viewport.canvas.style.cursor = ['workplane', 'ruler', 'note', 'pick'].includes(this.tool) ? 'crosshair' : '';
     this.emit('tool');
     this.emit('selection');
   }
@@ -371,7 +383,7 @@ export class Editor extends Emitter {
   // ---------------------------------------------------------------- pointer handling
   _hover(e) {
     if (this.disabled) return;
-    if (this.tool === 'workplane' || this.tool === 'ruler' || this.tool === 'note' || this.placing) return;
+    if (this.tool === 'workplane' || this.tool === 'ruler' || this.tool === 'note' || this.tool === 'pick' || this.placing) return;
     const hit = this.pickNode(e);
     this.viewport.canvas.style.cursor = hit && !hit.node.locked ? 'move' : '';
   }
@@ -385,6 +397,7 @@ export class Editor extends Emitter {
   _leftDown(e) {
     if (this.disabled || this.placing) return; // handled by the placement listeners
     if (this.tool === 'workplane') return this._pickWorkplane(e);
+    if (this.tool === 'pick') return this._pickPoint(e);
     if (this.tool === 'ruler') {
       const p = this.planePoint(e);
       if (p) this.ruler = { x: this.snapValue(p.x), y: this.snapValue(p.y) };
@@ -427,6 +440,34 @@ export class Editor extends Emitter {
       this.setFrame(new THREE.Matrix4().makeBasis(x, y, n).setPosition(hit.point));
     }
     this.setTool('select');
+  }
+
+  /**
+   * Ask for points on the model: resolves to [{ point, normal, node }] once `count` have been
+   * clicked, or null when the tool is cancelled. `prompt` is shown in the banner.
+   */
+  pickPoints(count, prompt, onPoint = null) {
+    if (this.picking) this.setTool('select');
+    return new Promise((resolve) => {
+      this.picking = { count, prompt, points: [], onPoint, done: resolve };
+      this.tool = 'select';
+      this.setTool('pick');
+    });
+  }
+
+  _pickPoint(e) {
+    const p = this.picking;
+    if (!p) return this.setTool('select');
+    const hit = this.pickNode(e);
+    let entry = hit ? { point: hit.point, normal: hit.normal, node: hit.node } : null;
+    if (!entry) { const q = this.planePoint(e); if (q) entry = { point: q.applyMatrix4(this.frame), normal: new THREE.Vector3(0, 0, 1).transformDirection(this.frame), node: null }; }
+    if (!entry) return;
+    p.points.push(entry);
+    if (p.onPoint) p.onPoint(p.points);
+    if (p.points.length < p.count) { this.emit('tool'); return; }
+    this.picking = null;
+    this.setTool('select');
+    p.done(p.points);
   }
 
   /** Put the workplane on top of the current selection (Shift+W). */
@@ -627,7 +668,7 @@ export class Editor extends Emitter {
     this.setTool('place');
     const ghost = new THREE.Mesh(getGeometry(node), new THREE.MeshStandardMaterial({
       color: node.hole ? '#c9d0d8' : node.color, transparent: true, opacity: 0.6, depthWrite: false,
-      vertexColors: node.type === 'group' && node.multicolor,
+      vertexColors: ownColors(node),
     }));
     if (ghost.material.vertexColors) ghost.material.color.set('#ffffff');
     ghost.matrixAutoUpdate = false;
@@ -806,6 +847,21 @@ export class Editor extends Emitter {
     this.emit('selection');
   }
 
+  /** Swap some top-level nodes for others in one undo step (used by the mesh tools). */
+  replaceNodes(ids, fresh, { select = true } = {}) {
+    const gone = new Set(ids);
+    let at = this.doc.nodes.findIndex((n) => gone.has(n.id));
+    if (at < 0) at = this.doc.nodes.length;
+    const before = this.doc.nodes.slice(0, at).filter((n) => !gone.has(n.id));
+    const after = this.doc.nodes.slice(at).filter((n) => !gone.has(n.id));
+    this.doc.nodes = [...before, ...fresh, ...after];
+    for (const id of gone) this.selection.delete(id);
+    if (select) this.selection = new Set(fresh.map((n) => n.id));
+    this.sync();
+    this.commit();
+    this.emit('selection');
+  }
+
   /** Open a group for editing: its parts become ordinary shapes until exitGroup(). */
   enterGroup(node) {
     if (this.editing || !node || node.type !== 'group' || node.locked) return false;
@@ -819,7 +875,8 @@ export class Editor extends Emitter {
     if (at < 0) return false;
     const outside = new Set(this.doc.nodes.filter((n) => n.id !== node.id).map((n) => n.id));
     this.doc.nodes.splice(at, 1, ...kids);
-    this.editing = { id: node.id, mode: node.mode, name: node.name, color: node.color, hole: node.hole, multicolor: node.multicolor, transparent: node.transparent, outside };
+    this.editing = { id: node.id, mode: node.mode, name: node.name, color: node.color, hole: node.hole, multicolor: node.multicolor, transparent: node.transparent, outside,
+      look: { round: node.round, roundEdges: node.roundEdges, roundStyle: node.roundStyle, fillet: node.fillet, shader: node.shader } };
     this.selection = new Set();
     this.sync();
     this.commit();
@@ -843,6 +900,8 @@ export class Editor extends Emitter {
         const g = this.selectedNodes()[0];
         if (g && g.type === 'group') {
           Object.assign(g, { name: e.name, color: e.color, multicolor: e.multicolor, transparent: e.transparent, hole: e.hole });
+          // edge rounding and surface finish belong to the group, not its parts
+          for (const [k, v] of Object.entries(e.look || {})) if (v !== undefined) g[k] = v;
           this.sync();
           this.commit();
           this.emit('selection');
@@ -874,7 +933,9 @@ export class Editor extends Emitter {
 
   setHole(hole) { this.patchSelection({ hole }); }
   setColor(color, commit = true) {
-    this.patchSelection((n) => (n.type === 'group' ? { color, multicolor: false, hole: false } : { color, hole: false }), { commit });
+    // a plain colour replaces whatever was painted on a mesh
+    const unpaint = (n) => { const m = n.params.mesh, mesh = { id: uid('m'), positions: m.positions }; if (m.groups) mesh.groups = m.groups; if (m.smooth) mesh.smooth = true; return { color, hole: false, params: { ...n.params, mesh } }; };
+    this.patchSelection((n) => (n.type === 'group' ? { color, multicolor: false, hole: false } : ownColors(n) ? unpaint(n) : { color, hole: false }), { commit });
   }
   setMulticolor(on) { this.patchSelection((n) => (n.type === 'group' ? { multicolor: on } : {})); }
   toggleTransparent() {

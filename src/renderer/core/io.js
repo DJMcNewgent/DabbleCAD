@@ -10,7 +10,7 @@ import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { zipSync, strToU8 } from 'three/examples/jsm/libs/fflate.module.js';
-import { makeShape, uid, deserializeDoc, cloneNode, PALETTE } from './doc.js';
+import { makeShape, uid, deserializeDoc, cloneNode, PALETTE, ownColors } from './doc.js';
 import { bakedWorldGeometry, getGeometry } from './geometry.js';
 import { traceMask, imageToMask, polysBounds } from './trace.js';
 
@@ -124,7 +124,21 @@ async function imageToNode(file) {
   c.width = w; c.height = hgt;
   const ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(img, 0, 0, w, hgt);
-  const mask = imageToMask(ctx.getImageData(0, 0, w, hgt));
+  let mask = imageToMask(ctx.getImageData(0, 0, w, hgt));
+  // hairline drawings: pixels that only touch corner to corner would trace as loose specks, so thicken those by a pixel
+  let filled = 0, loose = 0;
+  const on = (x, y) => x >= 0 && x < w && y < hgt && mask[y * w + x] !== 0;
+  for (let y = 0; y < hgt; y++) for (let x = 0; x < w; x++) {
+    if (!mask[y * w + x]) continue;
+    filled += 1;
+    if (on(x + 1, y + 1) && !on(x + 1, y) && !on(x, y + 1)) loose += 1;
+    if (on(x - 1, y + 1) && !on(x - 1, y) && !on(x, y + 1)) loose += 1;
+  }
+  if (loose > Math.max(3, filled / 200)) {
+    const fat = new Uint8Array(mask.length);
+    for (let y = 0; y < hgt; y++) for (let x = 0; x < w; x++) if (mask[y * w + x]) { fat[y * w + x] = 1; if (x + 1 < w) fat[y * w + x + 1] = 1; if (y + 1 < hgt) fat[(y + 1) * w + x] = 1; }
+    mask = fat;
+  }
   const polys = traceMask(mask, w, hgt, { scale: 1, smooth: 1 });
   if (!polys.length) throw new Error('No dark or opaque areas were found in ' + file.name);
   return extrusionNode(fitPolys(polys, 100), baseName(file.name), 5);
@@ -284,7 +298,7 @@ function writeGLB(nodes, geos) {
   root.scale.setScalar(0.001); // millimetres -> metres
   scene.add(root);
   geos.forEach((g, i) => {
-    const multi = nodes[i].type === 'group' && nodes[i].multicolor;
+    const multi = ownColors(nodes[i]) && !!g.attributes.color;
     const geo = g.clone();
     if (!multi) geo.deleteAttribute('color');
     const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: multi ? '#ffffff' : nodes[i].color, vertexColors: multi, roughness: 0.6, metalness: 0 }));

@@ -481,6 +481,7 @@ export const KINDS = {
     build: (p) => {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(p.mesh.positions, 3));
+      if (p.mesh.colors && p.mesh.colors.length === p.mesh.positions.length) g.setAttribute('color', new THREE.BufferAttribute(p.mesh.colors, 3));
       return g;
     },
   },

@@ -113,6 +113,8 @@ export function sketchDialog(existing) {
       else it.pts = it.pts.map((p) => [p[0] + dx, p[1] + dy]);
     };
     const finishPoly = () => {
+      // a double-click adds its point twice: repeated points are not corners
+      if (draft && draft.type === 'poly') draft.pts = draft.pts.filter((p, i, a) => !i || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 1e-6);
       if (draft && draft.type === 'poly' && draft.pts.length >= 3) { remember(); const it = { ...draft, id: nextId++ }; items.push(it); selected = it.id; }
       draft = null; panel(); draw();
     };
@@ -174,16 +176,16 @@ export function sketchDialog(existing) {
 
     // ---- side panel: typed dimensions for the selected item
     const side = h('div', { class: 'sketch-side' });
-    const num = (label, value, onChange, { min = -1000, step = 0.1 } = {}) => {
+    const num = (label, value, onChange, { min = -1000, step = 0.1, undoable = true } = {}) => {
       const input = h('input', { class: 'input', type: 'number', step, min, value: +(+value).toFixed(3) });
-      input.addEventListener('change', () => { const v = parseFloat(input.value); if (isFinite(v) && v >= min) { remember(); onChange(v); draw(); } else input.value = value; });
+      input.addEventListener('change', () => { const v = parseFloat(input.value); if (isFinite(v) && v >= min) { if (undoable) remember(); onChange(v); draw(); } else input.value = value; });
       input.addEventListener('keydown', (e) => e.stopPropagation());
       return h('label', { class: 'sketch-field' }, h('span', {}, label), input);
     };
     function panel() {
       clear(side);
       const it = items.find((i) => i.id === selected);
-      const depthField = num('Height (mm)', depth, (v) => { depth = v; }, { min: 0.2 });
+      const depthField = num('Height (mm)', depth, (v) => { depth = v; }, { min: 0.2, undoable: false }); // undo only covers the drawing
       side.append(h('h4', {}, 'Pull up'), depthField);
       if (!it) {
         side.append(h('h4', {}, 'Selected shape'), h('div', { class: 'insp-note' }, items.length ? 'Pick the arrow tool and click a shape to type its exact size.' : 'Draw a rectangle, circle or polygon. Sizes snap to the grid; hold Alt for free placement.'));

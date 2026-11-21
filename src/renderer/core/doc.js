@@ -43,6 +43,9 @@ export function cloneNode(node, freshIds = false) {
 
 export const mat4 = (arr) => new THREE.Matrix4().fromArray(arr);
 
+/** Does the node carry its own per-vertex colours (a multicolour group, or a painted mesh)? */
+export const ownColors = (node) => (node.type === 'group' ? !!node.multicolor : node.kind === 'mesh' && !!(node.params && node.params.mesh && node.params.mesh.colors));
+
 const round5 = (v) => Math.round(v * 1e5) / 1e5;
 
 function paramKey(params) {
@@ -89,31 +92,35 @@ function toBase64(typed) {
   return btoa(bin);
 }
 
-function fromBase64(b64) {
+function fromBase64(b64, Type = Float32Array) {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Float32Array(bytes.buffer);
+  return new Type(bytes.buffer);
 }
 
 export function serializeDoc(doc) {
-  const meshes = {};
+  const meshes = {}, meshColors = {}, meshGroups = {};
   const strip = (node) => {
     const out = { ...node };
     if (node.params) {
       out.params = { ...node.params };
       if (node.params.mesh) {
         const m = node.params.mesh;
-        if (!meshes[m.id]) meshes[m.id] = toBase64(m.positions);
-        out.params.mesh = { ref: m.id };
+        if (!meshes[m.id]) {
+          meshes[m.id] = toBase64(m.positions);
+          if (m.colors) meshColors[m.id] = toBase64(m.colors);
+          if (m.groups) meshGroups[m.id] = toBase64(m.groups);
+        }
+        out.params.mesh = m.smooth ? { ref: m.id, smooth: true } : { ref: m.id };
       }
     }
     if (node.children) out.children = node.children.map(strip);
     return out;
   };
   return JSON.stringify({
-    app: 'DabbleCAD', version: 1, name: doc.name, nodes: doc.nodes.map(strip), meshes,
-    workplane: doc.workplane, notes: doc.notes || [], laser: doc.laser || null,
+    app: 'DabbleCAD', version: 1, name: doc.name, nodes: doc.nodes.map(strip), meshes, meshColors, meshGroups,
+    workplane: doc.workplane, notes: doc.notes || [], laser: doc.laser || null, cnc: doc.cnc || null,
   });
 }
 
@@ -126,7 +133,12 @@ export function deserializeDoc(text) {
     out.matrix = Array.isArray(node.matrix) && node.matrix.length === 16 ? node.matrix.map(Number) : [...IDENT];
     if (out.params && out.params.mesh && out.params.mesh.ref) {
       const id = out.params.mesh.ref;
-      if (!cache[id]) cache[id] = { id, positions: fromBase64(raw.meshes[id]) };
+      if (!cache[id]) {
+        cache[id] = { id, positions: fromBase64(raw.meshes[id]) };
+        if (raw.meshColors && raw.meshColors[id]) cache[id].colors = fromBase64(raw.meshColors[id]);
+        if (raw.meshGroups && raw.meshGroups[id]) cache[id].groups = fromBase64(raw.meshGroups[id], Int32Array);
+        if (out.params.mesh.smooth) cache[id].smooth = true;
+      }
       out.params = { ...out.params, mesh: cache[id] };
     }
     if (node.children) out.children = node.children.map(revive);
@@ -138,6 +150,7 @@ export function deserializeDoc(text) {
     workplane: { ...defaultWorkplane(), ...(raw.workplane || {}) },
     notes: Array.isArray(raw.notes) ? raw.notes : [],
     laser: raw.laser || null,
+    cnc: raw.cnc || null,
   };
 }
 

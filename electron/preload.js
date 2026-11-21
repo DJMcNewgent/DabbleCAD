@@ -42,4 +42,9 @@ contextBridge.exposeInMainWorld('dabbleNative', {
   smokeShot: call('smoke:shot'),
   onSerialPorts: (fn) => ipcRenderer.on('serial:ports', (_e, ports) => fn(ports)),
   chooseSerialPort: (id) => ipcRenderer.send('serial:choose', id),
+  tcpConnect: call('tcp:connect'),
+  tcpWrite: (bytes) => ipcRenderer.send('tcp:write', bytes),
+  tcpClose: call('tcp:close'),
+  onTcpData: (fn) => { ipcRenderer.removeAllListeners('tcp:data'); ipcRenderer.on('tcp:data', (_e, bytes) => fn(bytes)); },
+  onTcpClose: (fn) => { ipcRenderer.removeAllListeners('tcp:closed'); ipcRenderer.on('tcp:closed', (_e, msg) => fn(msg)); },
 });

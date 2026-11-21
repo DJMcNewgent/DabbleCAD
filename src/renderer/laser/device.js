@@ -35,6 +35,8 @@ export class LaserDevice {
 
   async disconnect() {
     clearInterval(this.poll);
+    // never walk away from a machine that is still working: hold it and reset it (beam off) first
+    if (this.connected && this.job) { await this._raw('!'); await this._raw('\x18'); }
     this.connected = false;
     this._abortJob('Disconnected');
     try { if (this.reader) await this.reader.cancel(); } catch { /* ignore */ }
@@ -110,7 +112,11 @@ export class LaserDevice {
 
   async _raw(text) {
     if (!this.connected || !this.writer) return;
-    try { await this.writer.write(this.encoder.encode(text)); } catch (err) { this.emit('line', { text: 'Write failed: ' + (err.message || err), kind: 'error' }); }
+    try { await this.writer.write(this.encoder.encode(text)); } catch (err) {
+      this.emit('line', { text: 'Write failed: ' + (err.message || err), kind: 'error' });
+      // a line that never reached the controller will never be answered: end the job rather than wait for ever
+      if (this.job || this.pending) this._abortJob('Write failed');
+    }
   }
 
   _pump() {

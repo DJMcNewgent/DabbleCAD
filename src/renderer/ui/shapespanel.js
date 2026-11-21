@@ -1,7 +1,8 @@
 // Right-hand shape library: categories, search, drag-or-click placement, saved creations.
 import { h, clear, icon, button, toast } from './dom.js';
 import { CATALOG, CATEGORIES, nodeFromCatalog } from '../core/shapes.js';
-import { serializeDoc, deserializeDoc, makeGroup, cloneNode, uid } from '../core/doc.js';
+import { serializeDoc, deserializeDoc, makeGroup, cloneNode, uid, walk } from '../core/doc.js';
+import { ensureFont } from '../core/fonts.js';
 import { thumbnail, dropThumbnail } from '../view/thumbs.js';
 
 const STORE_KEY = 'dabble.creations';
@@ -26,6 +27,12 @@ export class ShapesPanel {
     this.category = 'basic';
     this.query = '';
     this.creations = loadCreations();
+    // saved creations can use installed fonts: load those before anything is built from them, or the text is cached in the fallback font
+    this.fontsReady = (async () => {
+      const names = new Set();
+      walk(this.creations.map((c) => c.node).filter(Boolean), (n) => { if (n.kind === 'text' && n.params && n.params.font) names.add(n.params.font); });
+      for (const name of names) { try { await ensureFont(name); } catch { /* falls back to the built-in font */ } }
+    })();
 
     this.tools = {};
     const tool = (id, label, ic, title) => {

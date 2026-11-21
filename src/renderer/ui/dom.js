@@ -101,6 +101,18 @@ const P = {
   arrowDown: 'M12 5v14M6 13l6 6 6-6',
   arrowLeft: 'M19 12H5M11 6l-6 6 6 6',
   arrowRight: 'M5 12h14M13 6l6 6-6 6',
+  arrowUpLeft: 'M18 18 6 6M6 15V6h9',
+  arrowUpRight: 'M6 18 18 6M9 6h9v9',
+  arrowDownLeft: 'M18 6 6 18M6 9v9h9',
+  arrowDownRight: 'M6 6l12 12M9 18h9V9',
+  cncMachine: 'M3 20h18M5 20V6h14v14M5 10h14M10 10v4h4v-4M12 14v3.500',
+  cncProfile: 'M7.500 7.500h9v9h-9zM4 4h16v16H4z',
+  cncPocket: 'M3 6h4.500v11h9V6H21M10 12h4M10 14.500h4',
+  cncVcarve: 'M3 6h5l4 12 4-12h5',
+  cncDrill: 'M12 3v11M9 5.500h6M9 9h6M9.500 14h5L12 20z',
+  cncChamfer: 'M4 20V11l7-7h9M4 11h7V4',
+  cncTexture: 'M3 8c3-3.500 6 3.500 9 0s6 3.500 9 0M3 15c3-3.500 6 3.500 9 0s6 3.500 9 0',
+  mesh: 'M12 3l8 5v8l-8 5-8-5V8zM4 8l8 5 8-5M12 13v8M4 16l8-8 8 8M12 3v5',
 };
 
 export function icon(name, size = 20) {

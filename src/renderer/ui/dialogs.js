@@ -168,6 +168,7 @@ const SHORTCUTS = [
   ['Resizing and rotating', [['Uniform scale', 'Shift + handle'], ['Scale from centre', 'Alt + handle'], ['Rotate in 45° steps', 'Shift + rotate'], ['Type a size', 'Click a dimension']]],
   ['Shape properties', [['Solid', 'S'], ['Hole', 'H'], ['Transparent', 'T'], ['Lock / unlock', 'Ctrl + L'], ['Hide', 'Ctrl + H'], ['Show all', 'Ctrl + Shift + H']]],
   ['Tools', [['Workplane', 'W'], ['Workplane on selection', 'Shift + W'], ['Ruler', 'R'], ['Notes', 'N'], ['Align', 'L'], ['Mirror', 'M'], ['Cancel tool', 'Esc']]],
+  ['Mesh tools (sculpt and select faces)', [['Sculpt / select', 'Drag on the shape'], ['Smooth while sculpting', 'Shift + drag'], ['Reverse the brush', 'Alt + drag'], ['Remove faces from the selection', 'Shift + drag'], ['Select a connected piece', 'Double-click'], ['Brush size', '[  ·  ]'], ['Undo / redo a stroke', 'Ctrl + Z / Ctrl + Y'], ['Delete selected faces', 'Del'], ['Done / Cancel', 'Enter / Esc']]],
   ['Commands', [['Copy / Cut / Paste', 'Ctrl + C / X / V'], ['Paste in place', 'Ctrl + Shift + V'], ['Duplicate and repeat', 'Ctrl + D'], ['Delete', 'Del'], ['Undo / Redo', 'Ctrl + Z / Ctrl + Y'], ['Select all', 'Ctrl + A'],
     ['Group (union)', 'Ctrl + G'], ['Intersect group', 'Ctrl + I'], ['Bundle', 'Ctrl + B'], ['Ungroup', 'Ctrl + Shift + G'], ['Add to / remove from selection', 'Shift + click'], ['Box select', 'Drag on empty space']]],
 ];
@@ -230,7 +231,13 @@ export function updateDialog(app, known = null) {
     }
     status.textContent = 'Downloaded and verified. Saving your work…';
     detail.textContent = '';
-    await app.flushSave();
+    // the installer restarts the app without the usual "save changes?" step, so settle unsaved work first
+    if (!(await app.confirmLeave())) {
+      status.textContent = 'The update was not installed';
+      detail.textContent = 'Your design has unsaved changes. Save it (Ctrl+S), then choose Update again.';
+      setActions(closeBtn());
+      return;
+    }
     const done = await platform.installUpdate();
     if (!done || !done.ok) {
       status.textContent = 'The update could not be started';
@@ -265,7 +272,8 @@ const WELCOME = [
   ['4. Cut holes and join parts', null, [
     'Select a shape and choose Hole to turn it into a cutting tool.',
     'Select the hole together with a solid and press Group: the hole is cut out and the parts become one.',
-    'Double-click a group to change its parts later, or press Ungroup to split it again.']],
+    'Double-click a group to change its parts later, or press Ungroup to split it again.',
+    'The Mesh tools tab on the right sculpts, repairs, hollows and analyses any shape or imported model.']],
   ['5. Print it', null, [
     'Press Export. Print check looks for problems such as parts floating in mid-air or walls too thin to print.',
     'Save an STL or 3MF for your slicer, or send it straight there with Open in slicer.',

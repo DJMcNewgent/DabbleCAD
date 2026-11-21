@@ -95,6 +95,7 @@ const browser = {
   closeCancel: () => {},
   onSerialPorts: () => {},
   chooseSerialPort: () => {},
+  tcpConnect: null, // plain TCP needs the desktop app; the browser build falls back to WebSocket
 };
 
 export const platform = native || browser;

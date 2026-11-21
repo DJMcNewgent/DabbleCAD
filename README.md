@@ -4,13 +4,15 @@
 
 **One offline, open-source app for 3D design, laser projects, and depth maps.**
 
-DabbleCAD puts three maker tools in a single desktop app, saved together in one design:
+DabbleCAD puts four maker tools in a single desktop app, saved together in one design:
 
 - **3D Design:** shape-based modeling inspired by Tinkercad. Drag shapes onto a
   workplane, stretch and rotate them, turn some into holes, group them into one part,
   and export an STL or 3MF for your slicer.
 - **Laser:** draw or import artwork, set up layers, preview the job, and export
   G-code or send it to a GRBL-compatible laser over USB.
+- **CNC:** draw or import artwork, pick what to cut out, pocket, V-carve, or drill,
+  watch a 3D preview carve it, then save G-code or run a GRBL-compatible router.
 - **Depth Map Studio:** turn a 3D model or an image into a height map for relief
   engraving.
 
@@ -176,6 +178,24 @@ storage instead and are separate from the desktop library.
   then pull the outline up into 3D. Double-click the result to edit the sketch.
 - **Generators** in real millimetres: bolts and nuts with printable threads,
   standoffs, a two-leaf hinge, snap clips, and a box with a fitted lid.
+- **Mesh tools** (the *Mesh tools* tab beside the shape library) work on any shape,
+  group, or imported model:
+  - **Sculpt** with 13 brushes: Draw, Draw 2, Inflate, Flatten, Pinch, Move, Drag, Spike,
+    Robust / Shrink / Bubble smooth, Attract, and Paint vertex, with size, strength,
+    falloff, left-right symmetry, and refine / reduce while you work.
+  - **Select faces** with a brush or lasso, then grow, shrink, invert, or take a whole
+    connected piece or face group; erase and fill, discard, extrude, offset, extract,
+    separate, transform (with soft falloff), smooth, refine, reduce, or flip them.
+  - **Edit:** mirror into a symmetric model, plane cut, close cracks, fill holes, flip
+    normals, face groups, make solid, hollow with drain holes, offset, reduce, remesh,
+    refine, smooth, make pattern (wireframe, honeycomb, lattice, perforations, tiled
+    spheres), make slices for sheet material, separate shells, combine, add tube, and
+    unit conversion.
+  - **Analysis:** Inspector with one-click auto repair, measure, stability and centre of
+    mass, strength (weakest layer), wall thickness and overhang colour maps, support
+    generation, best print orientation, layout / packing, deviation, clearance, and a
+    slicing view that hides everything above a height.
+  - **Shaders:** matte, glossy, faceted, wireframe, X-ray, and normals looks per shape.
 - **Print check:** before exporting, find shapes that are not closed solids, parts
   floating above the plate, thin walls, steep overhangs, and designs too big for
   your printer bed, with a one-click fix for resting the design on the plate.
@@ -235,6 +255,63 @@ certify compatibility with every controller or machine. Inspect generated paths
 and settings, follow your laser manufacturer's safety instructions, and never
 leave an operating laser unattended.
 
+### CNC workspace
+
+Switch to **CNC** at the top of the app. It has two halves: **Design**, where you draw
+and decide what gets cut, and **Machine**, where you run the router. The CNC workspace
+is saved with the same design as your 3D and laser work.
+
+**Design**
+
+- The same drawing tools as the laser workspace: lines, curves, rectangles, ellipses,
+  polygons, text, node editing, weld / subtract / intersect, offset, arrays, trace,
+  SVG / DXF / image import, and outlines from the 3D workspace.
+- A small shape library (star, heart, arrow, gear, slot, cross, ring, tag), **round
+  corners**, and **fit parts onto the material** (simple row packing).
+- **Material:** size, thickness, material type, where XY zero is (any corner or the
+  centre), whether Z zero is the top of the material or the machine bed, and mm or inches.
+- **Toolpaths:** select shapes, then click what to do with them.
+  - **Cut out:** outside, inside, or on the line, with tabs, ramped entry, a finish
+    pass, climb or conventional direction, and **dog-bone corners**.
+  - **Pocket:** follow-the-shape or back-and-forth clearing, with islands.
+  - **V-carve:** variable depth with sharp corners, an optional **flat depth**, and an
+    optional second bit that clears the flat areas first.
+  - **Engrave** (also on open lines, with fade in and out), **Drill** (with pecking),
+    **Chamfer**, **Inlay** (pocket and matching plug), and **Texture**.
+  - **3D relief:** roughing and finishing passes from a height map picture. Depth Map
+    Studio makes one from an STL or the current 3D design.
+- **Automatic feeds and speeds** suggested from the material, the bit, and how sturdy
+  your machine is. Turn it off on any toolpath to set your own.
+- A **bit library** (end mills, ball nose, V-bits, drills) that you can edit.
+- The cutter path is drawn over the drawing as you work, and a **3D preview** carves the
+  material on screen. Play it back or drag the slider to step through the job.
+- **G-code** for GRBL / grblHAL / FluidNC, LinuxCNC, Mach3 / Mach4, Marlin, and generic
+  controllers, in one file or one file per bit.
+
+**Machine**
+
+- Connect to GRBL-family controllers over **USB**, or over the **network** (plain TCP
+  such as grblHAL telnet, or WebSocket such as FluidNC). A built-in **demo machine**
+  lets you try everything with nothing plugged in.
+- Large position read-out, zero buttons for each axis, jogging by step or by holding
+  (buttons or arrow keys), homing, unlock, and reset.
+- Run the current design or **open any G-code file**; a 3D view shows the path, the
+  bit, and how far the job has got. Pause, resume, stop, **start from a line**, check
+  mode, and trace the outline of the job.
+- A short **pre-flight checklist** before the spindle starts.
+- Feed, rapid, and spindle **overrides**; spindle and coolant switches.
+- **Bit changes:** the job pauses with the spindle off, you can jog and set Z again,
+  then carry on.
+- **Probing:** Z touch plate, corner plate (X, Y and Z), and centre of a hole.
+- **Wizards:** flatten the bed or a board (surfacing), and calibrate an axis's steps
+  per mm.
+- **Controller settings** with plain-language names, backup to a file, and restore.
+- Macros, a console with command history, switch and probe lights, and alarms and
+  errors explained in words.
+
+Check the preview and the first moves of every job, keep the stop button within reach,
+and follow your machine's safety instructions. Suggested speeds are starting points.
+
 ### Depth Map Studio
 
 Create a height map from an STL, an image, or the current 3D design. Adjust levels,
@@ -247,7 +324,7 @@ Suggested material settings are starting points, not calibrated guarantees.
 
 ## Saving
 
-`Ctrl+S` (or `Cmd+S` on Mac) saves the design and its laser workspace, even with
+`Ctrl+S` (or `Cmd+S` on Mac) saves the design and its laser and CNC workspaces, even with
 auto-save off.
 
 With auto-save off and unsaved changes, DabbleCAD asks **Save / Don't save / Cancel**
@@ -285,7 +362,7 @@ npm start
 
 - `npm run dev`: browser development at `http://localhost:5183`.
 - `npm run build`: build the renderer.
-- `npm run test:all`: run all five functional suites with HTTP/WebSocket requests blocked.
+- `npm run test:all`: run all six functional suites with HTTP/WebSocket requests blocked.
 - `npm run package:win`: Windows installer and portable ZIP; run on Windows.
 - `npm run package:mac`: Intel and Apple Silicon DMG/ZIP builds; run on macOS.
 - `npm run package:linux`: x64 AppImage; run on Linux.
@@ -303,6 +380,18 @@ DabbleCAD is an early project, not a claim of production certification.
   slightly tighter, and very detailed shapes are refused because they take too long.
 - Edges are chosen as a set, not picked one at a time. Top and bottom follow the shape's
   own up direction, and filled inside corners close any slot narrower than twice their size.
+- Mesh tools turn the shape they change into a plain triangle mesh, so its sliders
+  (size of a star's points, a bolt's thread) are gone afterwards; Undo brings them back.
+- Make solid, Hollow and Offset rebuild the surface from a grid, which rounds off detail
+  finer than the grid. Raise the accuracy for small features; it gets slower quickly.
+- Sculpting moves the triangles that are there; it does not add new ones under the brush.
+  Press Refine first for finer detail.
+- Generated supports are straight posts, not the tree supports a slicer makes. Clearance
+  and deviation are measured at mesh corners and are close, not exact. Strength is a
+  cross-section estimate, not a stress simulation.
+- Not included from mesh-editing apps of this kind: UV unwrap, multi-material complexes,
+  surface stamps and stencils, bridging two selections, and blending library parts onto a
+  surface (Cruise places parts on a surface without blending them).
 - The print check is a quick geometric estimate, not a slicer. Imported meshes that
   are not closed solids fall back to a simpler grouping method.
 - Generator threads use a rounded printable profile, not a machined ISO thread. Print
@@ -320,6 +409,18 @@ DabbleCAD is an early project, not a claim of production certification.
   original. Linked pictures and a few rarely used object types are skipped.
 - DSP (Ruida-type) and galvo controllers are not supported: only G-code machines
   (GRBL, Marlin, Smoothieware). CO2 lasers with a DSP controller cannot be driven.
+- CNC toolpaths, G-code, probing routines, and machine control have been tested against
+  a simulated GRBL controller only, never on a real router. Cut air first: run a new
+  job high above the material and watch it before trusting it.
+- CNC machine control is for GRBL-family firmware. The LinuxCNC, Mach, and Marlin
+  outputs are G-code files to run in those programs, and have not been run on them.
+- V-carving and 3D relief treat curves as short straight pieces; G-code is all straight
+  moves (no arcs). Suggested feeds and speeds are conservative starting points, not
+  calibrated for your machine, bit, or material.
+- Not included from dedicated CNC design programs: full 3D model machining beyond
+  height-map relief, two-sided and rotary jobs, tiling of oversized jobs, moulding,
+  prism and thread-milling toolpaths, true-shape nesting, drafting dimensions, and
+  flashing controller firmware.
 - Real laser hardware, native close dialogs, installation, and operating-system
   trust prompts need manual testing in addition to automated tests.
 - Mac release builds must pass the macOS CI jobs and manual launch checks before
@@ -342,4 +443,5 @@ Clipper, QR Code Generator, and Roboto. See
 ## Trademarks
 
 DabbleCAD is an independent project, not affiliated with or endorsed by Autodesk.
-Tinkercad is a trademark of Autodesk, Inc.
+Tinkercad and Meshmixer are trademarks of Autodesk, Inc. The mesh tools cover the kind of
+work Meshmixer is known for; they are written from scratch and share no code with it.

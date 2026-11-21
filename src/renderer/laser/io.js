@@ -18,16 +18,50 @@ function nearestLayer(color) {
 function unitScale(svgText) {
   // physical width + viewBox give an exact scale; otherwise assume 96 px per inch
   const tag = (svgText.match(/<svg[^>]*>/i) || [''])[0];
-  const w = tag.match(/\bwidth\s*=\s*["']\s*([\d.]+)\s*(mm|cm|in|pt|px)?\s*["']/i);
+  const w = tag.match(/(?<![-\w])width\s*=\s*["']\s*([\d.]+)\s*(mm|cm|in|pt|px)?\s*["']/i);
   const vb = tag.match(/viewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
   const per = { mm: 1, cm: 10, in: 25.4, pt: 25.4 / 72, px: 25.4 / 96 };
   if (w && vb && parseFloat(vb[1]) > 0) return (parseFloat(w[1]) * (per[(w[2] || 'px').toLowerCase()] || per.px)) / parseFloat(vb[1]);
   return 25.4 / 96;
 }
 
+/** Hidden things (display: none, invisible, or only there to clip or mask something else) are not part of the drawing. */
+function notDrawn(node) {
+  for (let n = node; n && n.getAttribute; n = n.parentNode) {
+    const tag = (n.tagName || '').toLowerCase(), style = n.getAttribute('style') || '';
+    if (tag === 'clippath' || tag === 'mask') return true;
+    if (n.getAttribute('display') === 'none' || /display\s*:\s*none/i.test(style)) return true;
+    if (n === node && (n.getAttribute('visibility') === 'hidden' || /visibility\s*:\s*hidden/i.test(style))) return true;
+  }
+  return false;
+}
+
+/** Does the element, or a group around it, say what its fill is (attribute, inline style or a class)? */
+function fillStated(node) {
+  for (let n = node; n && n.getAttribute; n = n.parentNode) {
+    if (n.getAttribute('fill') != null || /(^|;)\s*fill\s*:/i.test(n.getAttribute('style') || '') || n.getAttribute('class')) return true;
+  }
+  return false;
+}
+
+/** A <symbol> is a template: only its <use> copies are drawn. Tuck stray ones into <defs>, where the loader leaves them alone. */
+function shelveSymbols(svgText) {
+  if (!/<symbol[\s>]/i.test(svgText) || typeof DOMParser === 'undefined') return svgText;
+  try {
+    const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+    if (doc.querySelector('parsererror')) return svgText;
+    const loose = [...doc.querySelectorAll('symbol')].filter((s) => !s.closest('defs'));
+    if (!loose.length) return svgText;
+    const defs = doc.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    doc.documentElement.insertBefore(defs, doc.documentElement.firstChild);
+    for (const s of loose) defs.append(s);
+    return new XMLSerializer().serializeToString(doc);
+  } catch { return svgText; }
+}
+
 /** SVG text -> path shapes (one per SVG path, layer chosen from its colour). */
 export function importSVG(svgText) {
-  const data = new SVGLoader().parse(svgText);
+  const data = new SVGLoader().parse(shelveSymbols(svgText));
   const k = unitScale(svgText);
   const shapes = [];
   for (const path of data.paths) {
@@ -35,12 +69,16 @@ export function importSVG(svgText) {
     const hasStroke = style.stroke && style.stroke !== 'none';
     const hasFill = style.fill && style.fill !== 'none';
     if (!hasStroke && !hasFill) continue;
+    const node = path.userData ? path.userData.node : null;
+    if (notDrawn(node)) continue;
+    // SVG fills everything black unless told otherwise; a stroked line with no fill of its own is meant as a line
+    const fillGiven = hasFill && (!hasStroke || fillStated(node));
     const subs = [];
     for (const sp of path.subPaths) {
       const pts = sp.getPoints(10).map((p) => [p.x * k, p.y * k]);
       if (pts.length < 2) continue;
       const f = pts[0], l = pts[pts.length - 1];
-      let closed = !!sp.autoClose || hasFill;
+      let closed = !!sp.autoClose || fillGiven;
       if (Math.hypot(f[0] - l[0], f[1] - l[1]) < 1e-4) { pts.pop(); closed = true; }
       if (pts.length < 2) continue;
       subs.push({ closed: closed && pts.length > 2, nodes: pts.map(([x, y]) => ({ x, y })) });
@@ -206,11 +244,15 @@ export function importDXF(text) {
     }
   }
   const shapes = [];
+  // our own exports name their layers C00..C29: those go back where they were, anything else takes the free ones in turn
+  const own = (name) => { const m = /^C(\d\d)$/.exec(name); return m && +m[1] < 30 ? +m[1] : -1; };
+  const taken = new Set([...byLayer.keys()].map(own).filter((n) => n >= 0));
   let li = 0;
-  for (const [, polys] of byLayer) {
+  for (const [name, polys] of byLayer) {
     const joined = joinChains(polys.map((p) => ({ closed: p.closed, pts: p.pts.map(([x, y]) => [x * unit, -y * unit]) })));
-    shapes.push(makePath(li % 30, joined.map((p) => ({ closed: p.closed, nodes: p.pts.map(([x, y]) => ({ x, y })) }))));
-    li += 1;
+    let layer = own(name);
+    if (layer < 0) { while (taken.has(li % 30) && li < 60) li += 1; layer = li % 30; li += 1; }
+    shapes.push(makePath(layer, joined.map((p) => ({ closed: p.closed, nodes: p.pts.map(([x, y]) => ({ x, y })) }))));
   }
   // move into positive space
   const b = boundsOf(shapes);

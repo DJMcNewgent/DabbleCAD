@@ -76,7 +76,8 @@ export class LaserWorkspace {
 
   getImage = (s) => this.images.get(s.id) || null;
 
-  _snapshot() { return { shapes: deep(this.doc.shapes), layers: deep(this.doc.layers), layerOrder: deep(this.doc.layerOrder || []) }; }
+  // variable text (serial number, list row) and print-and-cut marks are part of the design, so undo covers them too
+  _snapshot() { return { shapes: deep(this.doc.shapes), layers: deep(this.doc.layers), layerOrder: deep(this.doc.layerOrder || []), variables: deep(this.doc.variables ?? null), registration: deep(this.doc.registration ?? null) }; }
   _pushHistory() {
     this.history.length = this.hIndex + 1;
     this.history.push(this._snapshot());
@@ -98,6 +99,10 @@ export class LaserWorkspace {
     this.doc.shapes = deep(s.shapes);
     this.doc.layers = deep(s.layers);
     this.doc.layerOrder = deep(s.layerOrder);
+    for (const key of ['variables', 'registration']) {
+      if (!(key in s)) continue;
+      if (s[key]) this.doc[key] = deep(s[key]); else delete this.doc[key];
+    }
     const ids = new Set(this.doc.shapes.map((x) => x.id));
     this.sel = this.sel.filter((id) => ids.has(id));
     this.nodeSel = null;
@@ -326,8 +331,8 @@ export class LaserWorkspace {
   }
 
   refresh() {
-    setTextVariables(this.doc.variables || null);
     if (!this.active) return;
+    setTextVariables(this.doc.variables || null); // shared by every workspace: only the one on screen may set it
     this._renderProps();
     this._renderLayers();
     this._renderPaletteState();
@@ -1031,6 +1036,10 @@ export class LaserWorkspace {
   }
 
   // ---------------------------------------------------------------- property bar
+  /** Drawing coordinates <-> the X and Y shown in the property bar (measured from the machine's origin corner). */
+  toProp(x, y) { return toMachine(this.machine, x, y); }
+  fromProp(nx, ny) { const m = this.machine; return [m.origin.endsWith('r') ? m.bedW - nx : nx, m.origin.startsWith('b') ? m.bedH - ny : ny]; }
+
   _renderProps() {
     const bar = this.propBar;
     const active = document.activeElement;
@@ -1045,6 +1054,8 @@ export class LaserWorkspace {
       input.addEventListener('focus', () => input.select());
       return h('label', { class: 'lp-field' }, h('span', {}, label), input);
     };
+    // lengths are stored in mm; a workspace may show them in another unit (lenScale = shown / mm)
+    const k = this.lenScale || 1, len = (v) => (v * k).toFixed(k === 1 ? 3 : 4).replace(/\.?0+$/, '');
     const dots = h('div', { class: 'nine-dot', title: 'Reference point for X and Y' });
     for (let i = 0; i < 9; i++) { const d = h('button', { type: 'button', class: i === this.anchor ? 'on' : '' }); d.addEventListener('click', () => { this.anchor = i; this._renderProps(); }); dots.append(d); }
     if (!b) {
@@ -1055,9 +1066,9 @@ export class LaserWorkspace {
       return;
     }
     const fx = (this.anchor % 3) / 2, fy = Math.floor(this.anchor / 3) / 2;
-    const [ax, ay] = toMachine(m, b.x0 + b.w * fx, b.y0 + b.h * fy);
+    const [ax, ay] = this.toProp(b.x0 + b.w * fx, b.y0 + b.h * fy);
     const moveTo = (nx, ny) => {
-      const cx = m.origin.endsWith('r') ? m.bedW - nx : nx, cy = m.origin.startsWith('b') ? m.bedH - ny : ny;
+      const [cx, cy] = this.fromProp(nx, ny);
       this.transform(translate(cx - (b.x0 + b.w * fx), cy - (b.y0 + b.h * fy))); this.commit();
     };
     const resize = (w, hgt) => {
@@ -1067,18 +1078,18 @@ export class LaserWorkspace {
     const lock = h('button', { class: 'btn' + (this.lockAspect ? ' active' : ''), type: 'button', title: 'Lock aspect ratio' }, icon(this.lockAspect ? 'lock' : 'unlock', 16));
     lock.addEventListener('click', () => { this.lockAspect = !this.lockAspect; this._renderProps(); });
     bar.append(dots,
-      field('X', ax.toFixed(3).replace(/\.?0+$/, ''), (v) => moveTo(v, ay)), field('Y', ay.toFixed(3).replace(/\.?0+$/, ''), (v) => moveTo(ax, v)),
-      field('W', b.w.toFixed(3).replace(/\.?0+$/, ''), (v) => resize(v, this.lockAspect && b.w > 1e-9 ? (b.h * v) / b.w : b.h)), lock,
-      field('H', b.h.toFixed(3).replace(/\.?0+$/, ''), (v) => resize(this.lockAspect && b.h > 1e-9 ? (b.w * v) / b.h : b.w, v)),
+      field('X', len(ax), (v) => moveTo(v / k, ay)), field('Y', len(ay), (v) => moveTo(ax, v / k)),
+      field('W', len(b.w), (v) => { v /= k; resize(v, this.lockAspect && b.w > 1e-9 ? (b.h * v) / b.w : b.h); }), lock,
+      field('H', len(b.h), (v) => { v /= k; resize(this.lockAspect && b.h > 1e-9 ? (b.w * v) / b.h : b.w, v); }),
       field('Rotate', '0', (v) => this.rotate(-v), 54, 'Rotate by this many degrees (counter-clockwise positive)'));
     const sel = this.selected();
     if (sel.length === 1) {
       const s = sel[0];
       bar.append(h('span', { class: 'sep' }), h('span', { class: 'lp-type' }, typeLabel(s) + (s.locked ? ' (locked)' : '')));
-      if (s.type === 'rect') bar.append(field('Corner radius', s.r || 0, (v) => { s.r = Math.max(0, v); this.commit(); }, 56));
+      if (s.type === 'rect') bar.append(field('Corner radius', +((s.r || 0) * k).toFixed(4), (v) => { s.r = Math.max(0, v / k); this.commit(); }, 56));
       if (s.type === 'polygon') bar.append(field('Sides', s.sides, (v) => { s.sides = Math.max(3, Math.min(64, Math.round(v))); this.commit(); }, 50));
       if (s.type === 'text') bar.append(button({ label: 'Edit text', icon: 'pencil', cls: 'btn-outline', onClick: () => tools.textDialog(this, s) }));
-      if (s.type !== 'group') bar.append(field('Power scale %', s.powerScale ?? 100, (v) => { s.powerScale = Math.max(0, Math.min(100, v)); this.commit(); }, 50, 'Scales this shape\'s power relative to its layer'));
+      if (s.type !== 'group' && this.showPowerScale !== false) bar.append(field('Power scale %', s.powerScale ?? 100, (v) => { s.powerScale = Math.max(0, Math.min(100, v)); this.commit(); }, 50, 'Scales this shape\'s power relative to its layer'));
     } else bar.append(h('span', { class: 'sep' }), h('span', { class: 'lp-type' }, `${sel.length} objects`));
   }
 
@@ -1459,6 +1470,7 @@ export class LaserWorkspace {
       this.redraw();
     });
     platform.onSerialPorts((ports) => {
+      if (!this.active) return; // the CNC tab answers its own port requests
       if (!ports.length) { toast('No serial ports were found. Check the USB cable and that the laser is powered on.', 'warn', 5000); platform.chooseSerialPort(''); return; }
       let chosen = false;
       const close = popupMenu(ports.map((p) => ({ label: `${p.label}${p.name && p.name !== p.label ? ' (' + p.name + ')' : ''}`, icon: 'plug', onClick: () => { chosen = true; platform.chooseSerialPort(p.id); } })), this.connBtn);

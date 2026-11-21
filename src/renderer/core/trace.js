@@ -49,13 +49,16 @@ function simplifyDP(pts, eps) {
   return a.slice(0, -1).concat(b.slice(0, -1));
 }
 
-function chaikin(pts, rounds) {
+// Corner cutting, but by at most maxCut pixels: a long straight edge keeps its sharp corners instead of losing a quarter of its length.
+function chaikin(pts, rounds, maxCut = 1.5) {
   let cur = pts;
   for (let r = 0; r < rounds; r++) {
     const next = [];
     for (let i = 0; i < cur.length; i++) {
       const p = cur[i], q = cur[(i + 1) % cur.length];
-      next.push([p[0] * 0.75 + q[0] * 0.25, p[1] * 0.75 + q[1] * 0.25], [p[0] * 0.25 + q[0] * 0.75, p[1] * 0.25 + q[1] * 0.75]);
+      const dx = q[0] - p[0], dy = q[1] - p[1];
+      const t = Math.min(0.25, maxCut / (Math.hypot(dx, dy) || 1));
+      next.push([p[0] + dx * t, p[1] + dy * t], [q[0] - dx * t, q[1] - dy * t]);
     }
     cur = next;
   }
@@ -146,8 +149,10 @@ export function traceMask(mask, w, h, opts = {}) {
 export function imageToMask(imageData, { threshold = 128, invert = false } = {}) {
   const { data, width, height } = imageData;
   const mask = new Uint8Array(width * height);
-  let hasAlpha = false;
-  for (let i = 3; i < data.length; i += 4) if (data[i] < 250) { hasAlpha = true; break; }
+  // a picture counts as "drawn on transparency" only when a real share of it is see-through, not for one soft pixel
+  let seeThrough = 0;
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 128) seeThrough += 1;
+  const hasAlpha = seeThrough > (width * height) / 100;
   for (let i = 0, p = 0; i < data.length; i += 4, p++) {
     let on;
     if (hasAlpha) on = data[i + 3] >= 128;

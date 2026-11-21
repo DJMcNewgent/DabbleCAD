@@ -256,7 +256,7 @@ function rasterImage(entry, layer, getImage, moves, warnings) {
     flip = !flip;
     const first = reverse ? x0 + runs[runs.length - 1][1] * px : x0 + runs[0][0] * px;
     const dir = reverse ? -1 : 1;
-    moves.push({ x: first - dir * over, y, rapid: true });
+    moves.push({ x: first - dir * over, y, rapid: true, over: true });
     if (over > 0) moves.push({ x: first, y, s: 0, f });
     const list = reverse ? [...runs].reverse() : runs;
     for (const [a, b, pw2] of list) {
@@ -265,7 +265,7 @@ function rasterImage(entry, layer, getImage, moves, warnings) {
       if (Math.abs(last.x - xa) > 1e-9) moves.push({ x: xa, y, s: 0, f });
       moves.push({ x: xb, y, s: pw2, f });
     }
-    if (over > 0) moves.push({ x: moves[moves.length - 1].x + dir * over, y, s: 0, f });
+    if (over > 0) moves.push({ x: moves[moves.length - 1].x + dir * over, y, s: 0, f, over: true });
   }
 }
 
@@ -300,7 +300,7 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
     for (const e of vectors) if (e.shape.cutStart && !startOf.has(e.shape)) startOf.set(e.shape, apply(e.m, e.shape.cutStart));
     for (let pass = 0; pass < Math.max(1, layer.passes); pass++) {
       // focus / height move for this pass: the offset, stepping further down on each extra pass
-      if (machine.zEnabled && machine.flavor !== 'plasma' && (layer.zOffset || layer.zStep)) moves.push({ z: (layer.zOffset || 0) - pass * (layer.zStep || 0) });
+      if (machine.zEnabled && machine.flavor !== 'plasma' && (layer.zOffset || layer.zStep || moves.zMoved)) { moves.push({ z: (layer.zOffset || 0) - pass * (layer.zStep || 0) }); moves.zMoved = true; }
       for (const e of images) rasterImage(e, layer, getImage, moves, warnings);
       if (!vectors.length) continue;
       if (layer.mode === 'fill') {
@@ -314,10 +314,10 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
           for (const ang of angles) {
             for (const [a, b] of scanFill(list, layer.interval, ang, layer.bidirectional)) {
               const len = dist(a, b) || 1, ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len;
-              moves.push({ x: a[0] - ux * over, y: a[1] - uy * over, rapid: true });
+              moves.push({ x: a[0] - ux * over, y: a[1] - uy * over, rapid: true, over: true });
               if (over > 0) moves.push({ x: a[0], y: a[1], s: 0, f });
               moves.push({ x: b[0], y: b[1], s: p, f });
-              if (over > 0) moves.push({ x: b[0] + ux * over, y: b[1] + uy * over, s: 0, f });
+              if (over > 0) moves.push({ x: b[0] + ux * over, y: b[1] + uy * over, s: 0, f, over: true });
             }
           }
         }
@@ -414,9 +414,11 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
   // statistics
   let cut = 0, rapid = 0, time = 0, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   let p = null;
+  let overOut = false; // the run-up and run-out of an engraved line are real moves too
   for (const mv of moves) {
     if (mv.dwell) time += mv.dwell;
     if (mv.x == null) continue;
+    if (mv.over && (mv.x < -0.01 || mv.y < -0.01 || mv.x > machine.bedW + 0.01 || mv.y > machine.bedH + 0.01)) overOut = true;
     if (p) {
       const d = Math.hypot(mv.x - p.x, mv.y - p.y);
       if (mv.rapid) { rapid += d; time += d / (machine.rapid / 60); } else { cut += d; time += d / (mv.f / 60); }
@@ -426,6 +428,7 @@ export function planJob(doc, machine, getImage, { selectionOnly = null } = {}) {
   }
   const bounds = x0 === Infinity ? null : { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
   if (bounds && (bounds.x0 < -0.01 || bounds.y0 < -0.01 || bounds.x1 > machine.bedW + 0.01 || bounds.y1 > machine.bedH + 0.01)) warnings.push('Part of the job is outside the work area');
+  else if (overOut) warnings.push('The overscan moves at the ends of engraved lines go outside the work area: move the engraving in from the edge, or lower Overscan on its layer');
   return { moves, warnings, bounds, stats: { cut, rapid, time, count: moves.length } };
 }
 
@@ -622,7 +625,7 @@ export function frameGcode(plan, doc, machine, rubberBand = false) {
   const word = wordMapper(doc, plan, machine);
   const useG92 = doc.startFrom === 'current' && !registrationMap(doc, machine);
   const frac = Math.max(0, Math.min(1, (machine.framePower || 0) / 100));
-  const pw = frac > 0 && Number(sValue(machine, frac)) > 0 ? sValue(machine, frac) : null;
+  const pw = machine.flavor !== 'plasma' && frac > 0 && Number(sValue(machine, frac)) > 0 ? sValue(machine, frac) : null;
   const out = ['G21', 'G90'];
   if (useG92) out.push('G92 X0 Y0');
   const pt = (p) => word(p[0], p[1]);

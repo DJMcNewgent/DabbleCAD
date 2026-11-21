@@ -27,7 +27,7 @@ if (!fs.existsSync(executable)) throw new Error('Build the app first; executable
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 const shots = fs.mkdtempSync(path.join(os.tmpdir(), 'dabblecad-test-shots-'));
-const suites = ['smoke3.js', 'smoke-laser.js', 'smoke-depth.js', 'smoke6.js', 'smoke-save.js'];
+const suites = ['smoke3.js', 'smoke-mesh.js', 'smoke-laser.js', 'smoke-cnc.js', 'smoke-regress.js', 'smoke-depth.js', 'smoke6.js', 'smoke-save.js'];
 // Windows and Linux test on software rendering (Linux needs a display, such as
 // xvfb-run on a headless machine). Macs have no software WebGL, so they
 // test on the GPU (hosted Apple Silicon runners have one; hosted Intel runners do not).

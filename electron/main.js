@@ -1,6 +1,7 @@
 // DabbleCAD - Electron main process
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, net } = require('electron');
 const { spawn } = require('node:child_process');
+const netSocket = require('node:net');
 const { registerUpdater } = require('./updater');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -246,6 +247,41 @@ ipcMain.on('serial:choose', (_e, id) => {
   pendingSerial = null;
   cb(id || '');
 });
+// Network CNC controllers (grblHAL telnet, serial-to-network bridges): one plain TCP connection at a time.
+let tcp = null;
+function tcpDrop(msg, tell = true) {
+  if (!tcp) return;
+  const sock = tcp;
+  tcp = null;
+  sock.removeAllListeners();
+  sock.on('error', () => {});
+  sock.destroy();
+  if (tell && win && !win.isDestroyed()) win.webContents.send('tcp:closed', msg || '');
+}
+ipcMain.handle('tcp:connect', (_e, host, port) => new Promise((resolve) => {
+  tcpDrop('', false);
+  // a plain host name or address and a port: nothing else is passed on to the socket
+  const h = String(host || '').trim(), p = Number(port);
+  if (!/^[a-zA-Z0-9.-]{1,253}$/.test(h) || !(p > 0 && p < 65536)) { resolve({ ok: false, error: 'That address is not valid' }); return; }
+  const sock = netSocket.createConnection({ host: h, port: p });
+  let done = false;
+  const fail = (err) => { if (done) return; done = true; sock.destroy(); resolve({ ok: false, error: String(err && err.message ? err.message : err) }); };
+  sock.setTimeout(6000, () => fail('No answer from ' + h + ':' + p));
+  sock.once('error', fail);
+  sock.once('connect', () => {
+    if (done) return;
+    done = true;
+    sock.setTimeout(0);
+    sock.setNoDelay(true);
+    tcp = sock;
+    sock.on('data', (buf) => { if (win && !win.isDestroyed()) win.webContents.send('tcp:data', new Uint8Array(buf)); });
+    sock.on('error', (err) => tcpDrop(String(err.message || err)));
+    sock.on('close', () => tcpDrop(''));
+    resolve({ ok: true });
+  });
+}));
+ipcMain.on('tcp:write', (_e, bytes) => { if (tcp && bytes) tcp.write(Buffer.from(bytes)); });
+ipcMain.handle('tcp:close', () => { tcpDrop('', false); return true; });
 ipcMain.handle('settings:get', () => ({ ...settings, hardwareAcceleration, platform: process.platform, version: app.getVersion(), smoke: !!SMOKE }));
 ipcMain.handle('settings:set', (_e, patch) => {
   settings = { ...settings, ...patch };

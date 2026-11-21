@@ -5,7 +5,7 @@ import { ConvexHull } from 'three/examples/jsm/math/ConvexHull.js';
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
 import { KINDS } from './shapes.js';
-import { geomKey, mat4 } from './doc.js';
+import { geomKey, mat4, ownColors } from './doc.js';
 import { solidBoolean, withSolid } from './solid.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -33,16 +33,17 @@ function finalize(g) {
   return g;
 }
 
-function finishPrimitive(raw, kind) {
+function finishPrimitive(raw, kind, smooth = false) {
   let g = raw;
-  for (const name of Object.keys(g.attributes)) if (name !== 'position') g.deleteAttribute(name);
+  // an edited mesh may carry painted vertex colours; everything else is rebuilt from positions
+  for (const name of Object.keys(g.attributes)) if (name !== 'position' && !(kind === 'mesh' && name === 'color')) g.deleteAttribute(name);
   g.clearGroups();
   g.morphAttributes = {};
   const tris = triCount(g);
   if (tris < 350000) {
     if (!g.index) g = mergeVertices(g, 1e-4);
     else g = mergeVertices(g.toNonIndexed(), 1e-4);
-    g = toCreasedNormals(g, kind === 'mesh' ? 0.45 : CREASE);
+    g = toCreasedNormals(g, kind === 'mesh' ? (smooth ? 1.15 : 0.45) : CREASE);
   } else {
     // copy: the caller's position array (e.g. an imported mesh's params) must not be translated in place
     g = g.index ? g.toNonIndexed() : g.clone();
@@ -83,7 +84,7 @@ function bakedChild(child, parentMatrix) {
   const m = parentMatrix ? parentMatrix.clone().multiply(mat4(child.matrix)) : mat4(child.matrix);
   g.applyMatrix4(m);
   if (m.determinant() < 0) flipWinding(g);
-  if (!(child.type === 'group' && child.multicolor && g.attributes.color)) paint(g, child.color);
+  if (!(ownColors(child) && g.attributes.color)) paint(g, child.color);
   return g;
 }
 
@@ -293,7 +294,7 @@ export function getGeometry(node) {
       console.warn('Shape build failed', node.kind, err);
       raw = new THREE.BoxGeometry(20, 20, 20);
     }
-    g = finishPrimitive(raw, node.kind);
+    g = finishPrimitive(raw, node.kind, !!(node.params && node.params.mesh && node.params.mesh.smooth));
   }
   cache.set(key, g);
   if (cache.size > CACHE_LIMIT) {
@@ -400,7 +401,7 @@ export function bakedWorldGeometry(node, colorize = true) {
   const m = mat4(node.matrix);
   g.applyMatrix4(m);
   if (m.determinant() < 0) flipWinding(g);
-  if (colorize && !(node.type === 'group' && node.multicolor && g.attributes.color)) paint(g, node.color);
+  if (colorize && !(ownColors(node) && g.attributes.color)) paint(g, node.color);
   return g;
 }
 

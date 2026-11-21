@@ -35,7 +35,8 @@ function threadSolid(api, k, diameter, pitch, length) {
   const core = diameter / 2 - depth / 2;
   const profile = k(k(api.CrossSection.circle(core, 40)).translate(depth / 2, 0));
   const turns = length / pitch;
-  const divisions = Math.min(900, Math.max(8, Math.ceil(turns * 24)));
+  // 24 steps a turn, eased to no fewer than 12 on very long fine threads
+  const divisions = Math.max(8, Math.min(Math.ceil(turns * 24), Math.max(900, Math.ceil(turns * 12))));
   return k(api.Manifold.extrude(profile, length, divisions, 360 * turns));
 }
 
@@ -115,7 +116,7 @@ export const GENERATOR_KINDS = {
     params: [R('length', 'Arm length (mm)', 5, 80, 0.5, 18), R('width', 'Width (mm)', 2, 40, 0.5, 6), R('thickness', 'Arm thickness (mm)', 0.8, 6, 0.1, 1.6), R('hook', 'Hook height (mm)', 0.4, 6, 0.1, 1.4), R('base', 'Base length (mm)', 0, 30, 0.5, 6)],
     build: (p) => make((api, k) => {
       const L = p.length, t = p.thickness, hk = p.hook, b = p.base;
-      const hl = Math.max(hk * 2, 2.5);
+      const hl = Math.min(Math.max(hk * 2, 2.5), L); // the hook cannot be longer than the arm it sits on
       const baseH = t + hk + 1.5;
       const pts = [[-b, 0], [L, 0], [L, t + 0.2 * hk], [L - 0.6 * hl, t + hk], [L - hl, t + hk], [L - hl, t], [0, t]];
       if (b > 0) pts.push([0, baseH], [-b, baseH]);
@@ -127,13 +128,16 @@ export const GENERATOR_KINDS = {
     name: 'Box with Lid',
     params: [R('width', 'Width (mm)', 10, 250, 1, 60), R('depth', 'Depth (mm)', 10, 250, 1, 40), R('height', 'Height (mm)', 5, 200, 1, 30), R('wall', 'Wall (mm)', 0.8, 6, 0.1, 1.6), R('radius', 'Corner radius (mm)', 0, 30, 0.5, 4), R('lip', 'Lid lip (mm)', 1, 20, 0.5, 4), R('clearance', 'Lid clearance (mm)', 0, 1, 0.05, 0.2), S('part', 'Part', ['both', 'box', 'lid'], 'both')],
     build: (p) => make((api, k) => {
-      const W = p.width, D = p.depth, H = p.height, w = Math.min(p.wall, Math.min(W, D) / 4), r = p.radius, c = p.clearance;
+      const W = p.width, D = p.depth, H = p.height, w = Math.min(p.wall, Math.min(W, D) / 4, H - 0.4), r = p.radius, c = p.clearance;
       const outer = roundedRect(api, k, W, D, r);
       const inner = roundedRect(api, k, W - 2 * w, D - 2 * w, Math.max(0, r - w));
       const box = k(k(api.Manifold.extrude(outer, H)).subtract(k(k(api.Manifold.extrude(inner, H)).translate(0, 0, w))));
       const lipOuter = roundedRect(api, k, W - 2 * w - 2 * c, D - 2 * w - 2 * c, Math.max(0, r - w - c));
-      const lipInner = roundedRect(api, k, W - 4 * w - 2 * c, D - 4 * w - 2 * c, Math.max(0, r - 2 * w - c));
-      const ring = k(k(k(api.Manifold.extrude(lipOuter, p.lip)).subtract(k(k(api.Manifold.extrude(lipInner, p.lip + 2)).translate(0, 0, -1)))).translate(0, 0, w - 0.01));
+      // on a small box with thick walls there is no room for a hollow lip: it is left solid
+      const iw = W - 4 * w - 2 * c, id = D - 4 * w - 2 * c;
+      let ring = k(api.Manifold.extrude(lipOuter, p.lip));
+      if (iw > 0.2 && id > 0.2) ring = k(ring.subtract(k(k(api.Manifold.extrude(roundedRect(api, k, iw, id, Math.max(0, r - 2 * w - c)), p.lip + 2)).translate(0, 0, -1))));
+      ring = k(ring.translate(0, 0, w - 0.01));
       const lid = k(k(api.Manifold.extrude(outer, w)).add(ring));
       if (p.part === 'box') return box;
       if (p.part === 'lid') return lid;
