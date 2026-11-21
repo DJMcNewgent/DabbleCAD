@@ -212,11 +212,14 @@ same design as your 3D work.
 - **Camera overlay:** show a photo of the bed under your design to place artwork.
 - **Rotary attachment** settings for roller and chuck rotaries.
 - **Opens LightBurn projects** (`.lbrn2`, `.lbrn`): shapes, groups, curves, and layer settings.
+- **Layer tools:** name layers, lock them, drag them into cut order, copy and paste
+  settings between them, show only one, switch output on or off for all, sort cut
+  layers last, and move or delete everything on a layer (right-click a layer).
 - Auto-join open paths, delete duplicates, select by layer, and cut-order options.
 - Weld, subtract, intersect, exclude, offset, arrays, trace, align, distribute,
   flip, and rotate.
 - Image engraving with threshold, dithering, and grayscale options.
-- QR codes, material tests, interval tests, and outlines from the 3D workspace.
+- QR codes, material, interval, kerf, and focus tests, and outlines from the 3D workspace.
 - **Box maker:** finger-jointed panels for a laser-cut box from its width, depth,
   height, material thickness, and kerf.
 - **Material library:** save a layer's speed, power, and passes under a name of
@@ -260,7 +263,9 @@ unchanged, except that deleting a design still removes that copy.
 - **View cube:** click a face or drag it.
 
 Press `?` for the full shortcut list. Dark and light themes, graphics settings,
-shadows, and edge display are available in Settings. If the graphics driver crashes
+shadows, and edge display are available in Settings. **Settings → Files → Downloads folder**
+chooses where exported models, G-code, and pictures are saved; turn off "Ask where to
+save each time" to save there without a prompt. If the graphics driver crashes
 repeatedly, the app can fall back to software rendering (Windows and Linux; a Mac needs a working GPU).
 
 ## Run from source

@@ -1,9 +1,9 @@
 // Laser workspace: 2D canvas editor, layers, machine control. Owns its own tools and shortcuts.
-import { h, clear, button, icon, toast, popupMenu, promptDialog } from '../ui/dom.js';
+import { h, clear, button, icon, toast, popupMenu, promptDialog, modal } from '../ui/dom.js';
 import { platform } from '../platform.js';
 import { listFontNames, ensureFont } from '../core/fonts.js';
 import {
-  LAYER_COLORS, LAYER_NAMES, isToolLayer, newLaserDoc, layerOf, mul, apply, invert, translate, scaling, rotation, about,
+  LAYER_COLORS, LAYER_NAMES, isToolLayer, newLaserDoc, layerOf, defaultLayer, mul, apply, invert, translate, scaling, rotation, about,
   makeRect, makeEllipse, makePolygon, makePath, makeGroup, cloneShape, deep, walkShapes, flatten, boundsOf, hitShape, toPath, typeLabel, lid,
 } from './model.js';
 import { DEFAULT_MACHINE, machineOf, planJob, toGcode, frameGcode, toMachine, usedLayers, formatTime, sValue } from './gcode.js';
@@ -110,8 +110,15 @@ export class LaserWorkspace {
   redo() { if (this.hIndex < this.history.length - 1) this._restore(this.hIndex + 1); }
 
   selected() { return this.sel.map((id) => this.doc.shapes.find((s) => s.id === id)).filter(Boolean); }
-  movable() { return this.selected().filter((s) => !s.locked); }
-  select(ids) { this.sel = [...new Set(ids)]; this.nodeSel = null; this.refresh(); }
+  movable() { return this.selected().filter((s) => !s.locked && !this.layerLocked(s)); }
+  /** Shapes on a locked layer cannot be picked, moved or deleted. */
+  select(ids) {
+    const byId = new Map(this.doc.shapes.map((s) => [s.id, s]));
+    this.sel = [...new Set(ids)].filter((id) => { const s = byId.get(id); return !s || !this.layerLocked(s); });
+    this.nodeSel = null;
+    this.refresh();
+  }
+  layerLocked(s) { let locked = false; walkShapes([s], (x) => { if (x.type !== 'group' && layerOf(this.doc, x.layer).locked) locked = true; }); return locked; }
 
   add(shapes, select = true) {
     this.doc.shapes.push(...shapes);
@@ -192,6 +199,8 @@ export class LaserWorkspace {
         { label: 'QR code…', onClick: () => tools.qrDialog(this) },
         { label: 'Material test…', onClick: () => tools.materialTestDialog(this) },
         { label: 'Interval test…', onClick: () => tools.intervalTestDialog(this) },
+        { label: 'Kerf test…', onClick: () => tools.kerfTestDialog(this) },
+        { label: 'Focus test…', onClick: () => tools.focusTestDialog(this) },
       ]),
       tb('stats', 'Depth Map Studio: turn an STL model or an image into a height map for relief engraving', () => depthMapStudio(this), 'Depth Map'),
       h('span', { class: 'spacer' }),
@@ -561,7 +570,7 @@ export class LaserWorkspace {
       if (hitShape(s, pt, tol, (li) => this.layerFilled(li) && layerOf(this.doc, li).show !== false)) {
         let shown = false;
         walkShapes([s], (x) => { if (x.type !== 'group' && layerOf(this.doc, x.layer).show !== false) shown = true; });
-        if (shown) return s;
+        if (shown && !this.layerLocked(s)) return s;
       }
     }
     return null;
@@ -705,7 +714,7 @@ export class LaserWorkspace {
         const ids = [];
         for (const s of this.doc.shapes) {
           const b = boundsOf([s]);
-          if (!b || !this.visible(s)) continue;
+          if (!b || !this.visible(s) || this.layerLocked(s)) continue;
           const inside = b.x0 >= x0 && b.x1 <= x1 && b.y0 >= y0 && b.y1 <= y1;
           const touch = b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1;
           if (inside || (crossing && touch)) ids.push(s.id);
@@ -853,7 +862,7 @@ export class LaserWorkspace {
     this.add(fresh);
   }
   duplicate() { const s = this.selected(); if (s.length) this.add(s.map((x) => { const c = cloneShape(x); c.locked = false; return c; })); }
-  selectAll() { this.select(this.doc.shapes.filter((s) => this.visible(s)).map((s) => s.id)); }
+  selectAll() { this.select(this.doc.shapes.filter((s) => this.visible(s) && !this.layerLocked(s)).map((s) => s.id)); }
 
   group() {
     const s = this.movable();
@@ -1090,6 +1099,10 @@ export class LaserWorkspace {
     const order = usedLayers(this.doc);
     if (!order.includes(this.selectedLayer)) this.selectedLayer = order.includes(this.doc.currentLayer) ? this.doc.currentLayer : order[0] ?? this.doc.currentLayer;
     if (!order.length) list.append(h('div', { class: 'insp-note' }, 'Layers appear here once you draw something. Pick a colour below to choose the layer for new shapes.'));
+    else {
+      const more = button({ label: 'Layer options', cls: 'btn-ghost', title: 'Rename, copy settings, lock, show and hide, and more (or right-click a layer)', onClick: (e) => this._layerMenu(this.selectedLayer, e.currentTarget) });
+      list.append(h('div', { class: 'll-head' }, h('span', {}, `${order.length} layer${order.length === 1 ? '' : 's'} in use, cut from top to bottom`), more));
+    }
     const spd = (L) => (this.machine.speedUnits === 'mm/min' ? `${Math.round(L.speed * 60)}` : `${+L.speed.toFixed(2)}`);
     order.forEach((li, pos) => {
       const L = layerOf(this.doc, li);
@@ -1101,16 +1114,140 @@ export class LaserWorkspace {
       const up = h('button', { class: 'mini', type: 'button', title: 'Cut earlier' }, icon('arrowUp', 13)), dn = h('button', { class: 'mini', type: 'button', title: 'Cut later' }, icon('arrowDown', 13));
       up.addEventListener('click', (e) => { e.stopPropagation(); mv(-1); });
       dn.addEventListener('click', (e) => { e.stopPropagation(); mv(1); });
-      const row = h('div', { class: 'll-row' + (li === this.selectedLayer ? ' on' : '') },
+      const lock = h('button', { class: 'mini' + (L.locked ? ' on' : ''), type: 'button', title: L.locked ? 'Locked: shapes on this layer cannot be selected or moved. Click to unlock.' : 'Lock this layer so its shapes cannot be selected or moved' }, icon(L.locked ? 'lock' : 'unlock', 13));
+      lock.addEventListener('click', (e) => { e.stopPropagation(); this.lockLayer(li, !L.locked); });
+      const count = this.layerShapeCount(li);
+      const kind = isToolLayer(li) ? 'Guide' : L.mode === 'line' ? 'Line' : L.mode === 'fill' ? 'Fill' : 'Offset fill';
+      const row = h('div', { class: 'll-row' + (li === this.selectedLayer ? ' on' : ''), draggable: 'true', title: `${L.name ? L.name + ' · ' : ''}${kind} · ${count} shape${count === 1 ? '' : 's'}. Drag to change the cut order, right-click for more.` },
         h('span', { class: 'll-chip', style: { background: LAYER_COLORS[li] } }, LAYER_NAMES[li]),
-        h('span', { class: 'll-mode' }, isToolLayer(li) ? 'Guide' : L.mode === 'line' ? 'Line' : L.mode === 'fill' ? 'Fill' : 'Offset fill'),
-        h('span', { class: 'll-sp' }, `${spd(L)} / ${+L.powerMax.toFixed(1)}%`), up, dn, out, show);
+        h('span', { class: 'll-mode' }, L.name || kind, h('small', {}, L.name ? ` ${kind} · ${count}` : ` · ${count}`)),
+        h('span', { class: 'll-sp' }, isToolLayer(li) ? '' : `${spd(L)} / ${+L.powerMax.toFixed(1)}%`), up, dn, lock, out, show);
       row.addEventListener('click', (e) => { if (e.target.tagName === 'INPUT') return; this.selectedLayer = li; this._renderLayers(); });
-      row.addEventListener('dblclick', () => { const ids = []; for (const s of this.doc.shapes) { let has = false; walkShapes([s], (x) => { if (x.type !== 'group' && x.layer === li) has = true; }); if (has) ids.push(s.id); } this.select(ids); });
+      row.addEventListener('dblclick', () => this.select(this._idsOnLayer(li)));
+      row.addEventListener('contextmenu', (e) => { e.preventDefault(); this.selectedLayer = li; this._renderLayers(); this._layerMenu(li, { x: e.clientX, y: e.clientY }); });
+      row.addEventListener('dragstart', (e) => { this._dragLayer = li; try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(li)); } catch { /* synthetic */ } });
+      row.addEventListener('dragover', (e) => { if (this._dragLayer != null && this._dragLayer !== li) { e.preventDefault(); row.classList.add('drop'); } });
+      row.addEventListener('dragleave', () => row.classList.remove('drop'));
+      row.addEventListener('drop', (e) => { e.preventDefault(); const from = this._dragLayer; this._dragLayer = null; if (from != null) this.moveLayerTo(from, pos); });
+      row.addEventListener('dragend', () => { this._dragLayer = null; });
       list.append(row);
     });
     this._renderLayerEditor(order);
     this._updateJobInfo();
+  }
+
+  // ---- layer commands
+  layerShapeCount(li) { let n = 0; walkShapes(this.doc.shapes, (x) => { if (x.type !== 'group' && x.layer === li) n++; }); return n; }
+  _idsOnLayer(li) {
+    const ids = [];
+    for (const s of this.doc.shapes) { let has = false; walkShapes([s], (x) => { if (x.type !== 'group' && x.layer === li) has = true; }); if (has) ids.push(s.id); }
+    return ids;
+  }
+  /** Put a layer at a position in the cut order. */
+  moveLayerTo(li, pos) {
+    const o = usedLayers(this.doc).filter((x) => x !== li);
+    o.splice(Math.max(0, Math.min(o.length, pos)), 0, li);
+    this.doc.layerOrder = o;
+    this.commit();
+  }
+  async renameLayer(li) {
+    const L = layerOf(this.doc, li);
+    const name = await promptDialog(`Name layer ${LAYER_NAMES[li]}`, 'Name (leave empty to show the mode instead)', L.name || '');
+    if (name == null) return;
+    L.name = name.trim().slice(0, 40);
+    this.commit();
+  }
+  copyLayerSettings(li) {
+    const { index, name, show, output, locked, ...rest } = layerOf(this.doc, li); void index; void name; void show; void output; void locked;
+    this._layerClip = deep(rest);
+    toast(`Copied the settings of layer ${LAYER_NAMES[li]}`);
+  }
+  pasteLayerSettings(li) {
+    if (!this._layerClip || isToolLayer(li)) return false;
+    Object.assign(layerOf(this.doc, li), deep(this._layerClip));
+    this.commit();
+    return true;
+  }
+  resetLayer(li) {
+    const L = layerOf(this.doc, li);
+    Object.assign(L, { ...defaultLayer(li), name: L.name || '', show: L.show, output: L.output, locked: !!L.locked, subs: [] });
+    this.subIndex = 0;
+    this.commit();
+  }
+  lockLayer(li, on = true) {
+    layerOf(this.doc, li).locked = !!on;
+    if (on) { const gone = new Set(this.selected().filter((s) => this.layerLocked(s)).map((s) => s.id)); this.sel = this.sel.filter((id) => !gone.has(id)); }
+    this.commit();
+  }
+  soloLayer(li) { for (const i of usedLayers(this.doc)) layerOf(this.doc, i).show = i === li; this.commit(); }
+  showAllLayers() { for (const i of usedLayers(this.doc)) layerOf(this.doc, i).show = true; this.commit(); }
+  invertVisibleLayers() { for (const i of usedLayers(this.doc)) { const L = layerOf(this.doc, i); L.show = L.show === false; } this.commit(); }
+  setAllOutput(on) { for (const i of usedLayers(this.doc)) if (!isToolLayer(i)) layerOf(this.doc, i).output = !!on; this.commit(); }
+  /** Engraving first, cutting last, so parts do not shift or drop out before they are engraved. */
+  sortCutsLast() {
+    const images = new Set();
+    walkShapes(this.doc.shapes, (x) => { if (x.type === 'image') images.add(x.layer); });
+    const isCut = (i) => !isToolLayer(i) && layerOf(this.doc, i).mode === 'line' && !images.has(i);
+    const o = usedLayers(this.doc);
+    this.doc.layerOrder = [...o.filter((i) => !isCut(i)), ...o.filter(isCut)];
+    this.commit();
+  }
+  moveLayerShapes(from, to) {
+    if (from === to) return 0;
+    let n = 0;
+    walkShapes(this.doc.shapes, (x) => { if (x.type !== 'group' && x.layer === from) { x.layer = to; n++; } });
+    layerOf(this.doc, to);
+    if (n) { this.selectedLayer = to; this.commit(); }
+    return n;
+  }
+  deleteLayerShapes(li) {
+    let n = 0;
+    const prune = (list) => list.filter((s) => {
+      if (s.type === 'group') { s.children = prune(s.children); return s.children.length > 0; }
+      if (s.layer === li) { n++; return false; }
+      return true;
+    });
+    this.doc.shapes = prune(this.doc.shapes);
+    const ids = new Set(this.doc.shapes.map((s) => s.id));
+    this.sel = this.sel.filter((id) => ids.has(id));
+    if (n) this.commit();
+    return n;
+  }
+  _pickLayer(title, skip) {
+    return new Promise((resolve) => {
+      let done = false;
+      const m = modal({ title, width: 430, onClose: () => { if (!done) resolve(null); } });
+      const grid = h('div', { class: 'layer-pick' });
+      LAYER_COLORS.forEach((c, i) => {
+        if (i === skip) return;
+        const b = h('button', { class: 'lp-swatch', type: 'button', style: { background: c }, title: (layerOf(this.doc, i).name || (isToolLayer(i) ? 'Guide layer' : 'Layer')) + ' ' + LAYER_NAMES[i] }, LAYER_NAMES[i]);
+        b.addEventListener('click', () => { done = true; resolve(i); m.close(); });
+        grid.append(b);
+      });
+      m.body.append(h('div', { class: 'insp-note' }, 'Pick the layer to move these shapes to. They take on that layer\'s settings.'), grid);
+    });
+  }
+  _layerMenu(li, at) {
+    const L = layerOf(this.doc, li), tool = isToolLayer(li), count = this.layerShapeCount(li);
+    popupMenu([
+      { label: 'Rename…', icon: 'pencil', onClick: () => this.renameLayer(li) },
+      { label: 'Copy settings', disabled: tool, onClick: () => this.copyLayerSettings(li) },
+      { label: 'Paste settings', disabled: tool || !this._layerClip, onClick: () => { if (this.pasteLayerSettings(li)) toast(`Pasted onto layer ${LAYER_NAMES[li]}`); } },
+      { label: 'Reset to default settings', disabled: tool, onClick: () => this.resetLayer(li) },
+      'sep',
+      { label: 'Select shapes on this layer', disabled: !count || !!L.locked, onClick: () => this.select(this._idsOnLayer(li)) },
+      { label: 'Move shapes to another layer…', disabled: !count, onClick: async () => { const to = await this._pickLayer(`Move ${count} shape${count === 1 ? '' : 's'} from layer ${LAYER_NAMES[li]}`, li); if (to != null) { const n = this.moveLayerShapes(li, to); toast(`Moved ${n} shape${n === 1 ? '' : 's'} to layer ${LAYER_NAMES[to]}`); } } },
+      { label: 'Delete shapes on this layer', disabled: !count || !!L.locked, onClick: () => { const n = this.deleteLayerShapes(li); toast(`Deleted ${n} shape${n === 1 ? '' : 's'} (Ctrl+Z brings them back)`); } },
+      'sep',
+      { label: L.locked ? 'Unlock layer' : 'Lock layer', icon: L.locked ? 'unlock' : 'lock', onClick: () => this.lockLayer(li, !L.locked) },
+      { label: 'Show only this layer', onClick: () => this.soloLayer(li) },
+      { label: 'Show all layers', onClick: () => this.showAllLayers() },
+      { label: 'Invert visible layers', onClick: () => this.invertVisibleLayers() },
+      'sep',
+      { label: 'Turn output on for all layers', onClick: () => this.setAllOutput(true) },
+      { label: 'Turn output off for all layers', onClick: () => this.setAllOutput(false) },
+      { label: 'Sort cut layers last', onClick: () => this.sortCutsLast() },
+    ], at);
   }
 
   _renderLayerEditor(order) {
@@ -1135,6 +1272,11 @@ export class LaserWorkspace {
     mode.value = L.mode;
     mode.addEventListener('change', () => { L.mode = mode.value; this.commit(); });
     ed.append(h('div', { class: 'le-title' }, h('span', { class: 'll-chip', style: { background: LAYER_COLORS[li] } }, LAYER_NAMES[li]), `Layer ${LAYER_NAMES[li]} settings`));
+    {
+      const name = h('input', { class: 'input', type: 'text', value: baseLayer.name || '', placeholder: 'For example: Cut outline', maxlength: 40, 'aria-label': 'Layer name' });
+      name.addEventListener('change', () => { baseLayer.name = name.value.trim(); this.commit(); });
+      ed.append(h('label', { class: 'le-row' }, h('span', {}, 'Name'), name));
+    }
     if (isToolLayer(li)) { ed.append(h('div', { class: 'insp-note' }, 'Guide layers are for layout help and are never sent to the laser.')); return; }
     {
       const pick = (i, label, tip) => button({ label, cls: 'btn-outline' + (this.subIndex === i ? ' active' : ''), title: tip, onClick: () => { this.subIndex = i; this._renderLayers(); } });

@@ -17,7 +17,7 @@ export function defaultLayer(i) {
     interval: 0.1, angle: 0, crosshatch: false, bidirectional: true, overscan: 2.5,
     kerf: 0, tabs: 0, tabSize: 0.5, air: false, output: !isToolLayer(i), show: true,
     leadIn: 0, leadOut: 0, leadStyle: 'arc', pierce: 0, overcut: 0, perforate: false, perfCut: 3, perfSkip: 1.5,
-    zOffset: 0, zStep: 0,
+    zOffset: 0, zStep: 0, name: '', locked: false,
     image: { mode: 'floyd', negative: false, brightness: 0, contrast: 0, gamma: 1, passThrough: false },
   };
 }

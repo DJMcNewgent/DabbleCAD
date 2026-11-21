@@ -294,17 +294,48 @@ ipcMain.handle('dialog:open', async (_e, opts = {}) => {
     return { name: path.basename(p), path: p, data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
   });
 });
+// Where exported files go: the folder chosen in Settings, or the system Downloads folder.
+function isFolder(p) { try { return typeof p === 'string' && !!p && fs.statSync(p).isDirectory(); } catch { return false; } }
+function chosenDownloadDir() { return isFolder(settings.downloadDir) ? settings.downloadDir : ''; }
+function downloadDir() { return chosenDownloadDir() || app.getPath('downloads'); }
+/** A name in that folder that does not overwrite anything: "part.stl", then "part (2).stl". */
+function freeName(dir, name) {
+  const clean = path.basename(String(name || 'design')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') || 'design';
+  const ext = path.extname(clean), stem = clean.slice(0, clean.length - ext.length);
+  let file = path.join(dir, clean);
+  for (let i = 2; fs.existsSync(file) && i < 10000; i++) file = path.join(dir, `${stem} (${i})${ext}`);
+  return file;
+}
 ipcMain.handle('dialog:save', async (_e, opts = {}) => {
+  const data = typeof opts.data === 'string' ? opts.data : Buffer.from(opts.data);
+  if (settings.askWhereToSave === false) {
+    // save straight into the downloads folder without asking
+    const dir = downloadDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const file = freeName(dir, opts.defaultName);
+    fs.writeFileSync(file, data);
+    return file;
+  }
+  const chosen = chosenDownloadDir();
   const res = await dialog.showSaveDialog(win, {
     title: opts.title || 'Save',
-    defaultPath: opts.defaultName || 'design',
+    defaultPath: chosen ? path.join(chosen, path.basename(opts.defaultName || 'design')) : opts.defaultName || 'design',
     filters: opts.filters || [],
   });
   if (res.canceled || !res.filePath) return null;
-  const data = typeof opts.data === 'string' ? opts.data : Buffer.from(opts.data);
   fs.writeFileSync(res.filePath, data);
   return res.filePath;
 });
+ipcMain.handle('dialog:pick-folder', async (_e, opts = {}) => {
+  const res = await dialog.showOpenDialog(win, {
+    title: opts.title || 'Choose a folder',
+    defaultPath: downloadDir(),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return res.canceled || !res.filePaths.length ? null : res.filePaths[0];
+});
+ipcMain.handle('downloads:info', () => ({ chosen: chosenDownloadDir(), folder: downloadDir() }));
+ipcMain.handle('downloads:open', async () => { const dir = downloadDir(); fs.mkdirSync(dir, { recursive: true }); return shell.openPath(dir); });
 // Hand an exported model to a slicer: the chosen app, or whatever opens that file type.
 ipcMain.handle('slicer:open', async (_e, opts = {}) => {
   try {
@@ -336,7 +367,7 @@ ipcMain.handle('dialog:pick-app', async () => {
   return res.canceled || !res.filePaths.length ? null : res.filePaths[0];
 });
 
-registerUpdater({ ipcMain, app, net, shell, getWindow: () => win, getSettings: () => settings, smoke: !!SMOKE, argValue });
+registerUpdater({ ipcMain, app, net, shell, getWindow: () => win, getSettings: () => settings, getDownloadDir: () => chosenDownloadDir(), smoke: !!SMOKE, argValue });
 ipcMain.handle('shell:open-external', (_e, url) => {
   if (typeof url === 'string' && /^https:\/\/github\.com\/DJMcNewgent\//.test(url)) shell.openExternal(url);
 });

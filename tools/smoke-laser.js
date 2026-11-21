@@ -401,5 +401,115 @@ document.querySelector('.btn[data-mode="laser"]').click(); await wait(200);
   await L.tools.importFiles(ws, [{ name: 'box.lbrn2', data: new TextEncoder().encode(lb2).buffer }]); await wait(150);
   check('lbrn-import-file', ws.doc.shapes.length === n0 + 4 && M.layerOf(ws.doc, 3).mode === 'fill' && M.layerOf(ws.doc, 3).speed === 150, ws.doc.shapes.length - n0);
 }
+// layer panel: names, lock, copy / paste settings, visibility, cut order, moving shapes, kerf and focus tests
+{
+  const M = L.model, G = L.gcode;
+  const generate = async () => { await wait(100); [...document.querySelectorAll('.modal .btn')].find((x) => x.textContent === 'Generate').click(); await wait(200); };
+  ws.doc.shapes = []; ws.doc.layerOrder = []; ws.sel = [];
+  const a = M.makeRect(5, 20, 20, 30, 20), b = M.makeRect(6, 80, 20, 30, 20), c = M.makeRect(7, 140, 20, 30, 20);
+  for (const i of [5, 6, 7]) Object.assign(M.layerOf(ws.doc, i), M.defaultLayer(i));
+  Object.assign(M.layerOf(ws.doc, 5), { speed: 12, powerMax: 77 });
+  Object.assign(M.layerOf(ws.doc, 6), { mode: 'fill', speed: 150, powerMax: 20 });
+  ws.add([a, b, c]); await wait(50);
+  check('layer-rows', document.querySelectorAll('.ll-row').length === 3 && !!document.querySelector('.ll-head .btn'));
+  M.layerOf(ws.doc, 5).name = 'Cut outline'; ws.commit();
+  check('layer-name', [...document.querySelectorAll('.ll-row .ll-mode')].some((e) => e.textContent.startsWith('Cut outline')) && ws.layerShapeCount(5) === 1);
+  const nameInput = document.querySelector('.laser-layer-editor input[aria-label="Layer name"]');
+  check('layer-name-field', !!nameInput);
+  // a locked layer cannot be clicked, box-selected, selected by Ctrl+A or picked from code
+  ws.select([a.id]);
+  const hitBefore = ws.hit([35, 20]);
+  ws.lockLayer(5, true);
+  const hitLocked = ws.hit([35, 20]);
+  ws.selectAll(); const allLocked = ws.sel.length;
+  ws.select([a.id]); const pickLocked = ws.sel.length;
+  ws.select([]); dragTo(at(10, 10), at(190, 60)); const boxLocked = ws.sel.length;
+  check('layer-lock', hitBefore && hitBefore.id === a.id && hitLocked === null && allLocked === 2 && pickLocked === 0 && boxLocked === 2, [!!hitBefore, hitLocked, allLocked, pickLocked, boxLocked]);
+  ws.lockLayer(5, false); ws.select([a.id]);
+  check('layer-unlock', ws.sel.length === 1 && ws.hit([35, 20]) !== null);
+  // copy and paste settings, reset
+  ws.copyLayerSettings(5); ws.pasteLayerSettings(6);
+  const L6 = M.layerOf(ws.doc, 6);
+  check('layer-paste', L6.mode === 'line' && L6.speed === 12 && L6.powerMax === 77 && !L6.name && L6.index === 6, L6);
+  ws.resetLayer(6);
+  check('layer-reset', M.layerOf(ws.doc, 6).speed === 100 && M.layerOf(ws.doc, 6).powerMax === 30 && M.layerOf(ws.doc, 5).name === 'Cut outline');
+  // show / hide / output
+  const shown = () => [5, 6, 7].map((i) => (M.layerOf(ws.doc, i).show !== false ? 1 : 0)).join('');
+  ws.soloLayer(6); const solo = shown();
+  ws.invertVisibleLayers(); const inv = shown();
+  ws.showAllLayers();
+  check('layer-visibility', solo === '010' && inv === '101' && shown() === '111', [solo, inv, shown()]);
+  ws.setAllOutput(false); const noOut = ws.plan().bounds;
+  ws.setAllOutput(true);
+  check('layer-output-all', !noOut && !!ws.plan().bounds);
+  // cut order
+  M.layerOf(ws.doc, 6).mode = 'fill'; ws.doc.layerOrder = [5, 6, 7]; ws.sortCutsLast();
+  const sorted = G.usedLayers(ws.doc).join();
+  ws.moveLayerTo(7, 0);
+  check('layer-order', sorted === '6,5,7' && G.usedLayers(ws.doc).join() === '7,6,5', [sorted, G.usedLayers(ws.doc).join()]);
+  // right-click menu
+  document.querySelector('.ll-row').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 600, clientY: 200 }));
+  await wait(60);
+  const items = [...document.querySelectorAll('.menu .menu-label')].map((e) => e.textContent);
+  check('layer-menu', items.includes('Rename…') && items.includes('Copy settings') && items.includes('Lock layer') && items.includes('Sort cut layers last'), items);
+  await shot('l-layers');
+  key('Escape'); await wait(30);
+  check('layer-menu-closes', !document.querySelector('.menu'));
+  // move and delete a layer's shapes
+  const moved = ws.moveLayerShapes(7, 5);
+  check('layer-move-shapes', moved === 1 && ws.layerShapeCount(5) === 2 && G.usedLayers(ws.doc).length === 2);
+  const deleted = ws.deleteLayerShapes(5);
+  check('layer-delete-shapes', deleted === 2 && ws.doc.shapes.length === 1);
+  ws.undo();
+  check('layer-delete-undo', ws.doc.shapes.length === 3);
+  // LightBurn layer names come across, but not the default colour codes
+  const named = L.io.importLBRN('<LightBurnProject><CutSetting type="Cut"><index Value="0"/><name Value="Outline"/></CutSetting><CutSetting type="Cut"><index Value="1"/><name Value="C01"/></CutSetting><Shape Type="Rect" CutIndex="0" W="10" H="10"><XForm>1 0 0 1 20 20</XForm></Shape></LightBurnProject>', ws.machine);
+  check('lbrn-layer-names', named.layers[0].name === 'Outline' && named.layers[1].name === undefined, named.layers);
+
+  // kerf test: six squares, each on its own layer with a stepped kerf offset, labels engraved first
+  ws.doc.shapes = []; ws.doc.layerOrder = []; ws.sel = []; ws.commit();
+  L.tools.kerfTestDialog(ws); await generate();
+  const kg = ws.selected()[0], squares = kg ? kg.children.filter((x) => x.type === 'rect') : [];
+  const kerfs = squares.map((x) => M.layerOf(ws.doc, x.layer).kerf);
+  const labelLayer = kg ? kg.children.find((x) => x.type === 'text').layer : -1;
+  check('kerf-test', squares.length === 6 && near(kerfs[0], 0) && near(kerfs[5], 0.25) && near(kerfs[2], 0.1) && new Set(squares.map((x) => x.layer)).size === 6 && G.usedLayers(ws.doc)[0] === labelLayer && M.layerOf(ws.doc, squares[5].layer).name === 'Kerf 0.25', [kerfs, G.usedLayers(ws.doc), labelLayer]);
+  // the planned outline of the last square really is 0.25 mm bigger all round
+  {
+    const plan = ws.plan();
+    const big = plan.paths ? plan.paths : null; void big;
+    const code = G.toGcode(plan, ws.doc, ws.machine);
+    check('kerf-test-gcode', code.length > 200 && /G1/.test(code));
+  }
+  // focus test: refuses without a Z axis, otherwise one line per Z offset
+  ws.doc.shapes = []; ws.doc.layerOrder = []; ws.sel = []; ws.commit();
+  const hadZ = ws.machine.zEnabled;
+  ws.machine.zEnabled = false;
+  L.tools.focusTestDialog(ws); await wait(80);
+  check('focus-test-needs-z', !document.querySelector('.modal'));
+  ws.machine.zEnabled = true;
+  L.tools.focusTestDialog(ws); await generate();
+  const fg = ws.selected()[0], lines = fg ? fg.children.filter((x) => x.type === 'path') : [];
+  const zs = lines.map((x) => M.layerOf(ws.doc, x.layer).zOffset);
+  const fcode = fg ? G.toGcode(ws.plan(), ws.doc, ws.machine) : '';
+  check('focus-test', lines.length === 9 && near(zs[0], -4) && near(zs[4], 0) && near(zs[8], 4) && /Z-4/.test(fcode) && /Z4/.test(fcode), [zs, fcode.length]);
+  ws.machine.zEnabled = hadZ;
+  ws.doc.shapes = []; ws.doc.layerOrder = []; ws.sel = []; ws.commit();
+}
+
+// downloads folder: exports can go straight to a chosen folder, never overwriting
+if (window.dabbleNative && dir) {
+  const N = window.dabbleNative;
+  const before = await N.downloadsInfo();
+  await N.setSettings({ downloadDir: dir, askWhereToSave: false });
+  const info = await N.downloadsInfo();
+  const p1 = await N.saveDialog({ defaultName: 'download-test.txt', data: 'one' });
+  const p2 = await N.saveDialog({ defaultName: 'download-test.txt', data: 'two' });
+  const norm = (p) => String(p).replace(/\\/g, '/').toLowerCase();
+  check('downloads-folder', norm(info.chosen) === norm(dir) && norm(p1).startsWith(norm(dir)) && norm(p1).endsWith('/download-test.txt') && norm(p2).endsWith('/download-test (2).txt'), [info, p1, p2]);
+  await N.setSettings({ downloadDir: 'Z:/no/such/folder/anywhere', askWhereToSave: true });
+  const bad = await N.downloadsInfo();
+  check('downloads-folder-missing', bad.chosen === '' && !!bad.folder, bad);
+  await N.setSettings({ downloadDir: before.chosen || '', askWhereToSave: true });
+}
 out.fails = fails;
 return out;

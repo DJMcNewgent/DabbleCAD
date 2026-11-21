@@ -393,6 +393,62 @@ export function intervalTestDialog(ws) {
     }));
 }
 
+/** A row of squares, each cut with a different kerf offset: measure them to find the right value. */
+export function kerfTestDialog(ws) {
+  const m = modal({ title: 'Kerf test', width: 460 });
+  quiet(m);
+  const count = numInput(6, 1, 2, 12), k0 = numInput(0, 0.01), k1 = numInput(0.25, 0.01), speed = numInput(10, 1, 0.1), power = numInput(80, 1, 0, 100), size = numInput(20, 1, 5);
+  m.body.append(h('div', { class: 'row' }, field('Squares', count), field('Square size (mm)', size)), h('div', { class: 'row' }, field('Smallest kerf offset (mm)', k0), field('Largest kerf offset (mm)', k1)),
+    h('div', { class: 'row' }, field('Cut speed (mm/s)', speed), field('Cut power (%)', power)),
+    h('div', { class: 'insp-note' }, 'Cuts a row of squares, each on its own layer with a different kerf offset. Measure them with calipers: the square that comes out at exactly the size above shows the kerf offset to use for this material.'),
+    actions(m, 'Generate', () => {
+      const n = Math.max(2, Math.min(12, Math.round(val(count, 6))));
+      const layers = freeLayers(ws, n + 1);
+      if (layers.length < n + 1) { toast('Not enough unused layers for this test', 'warn'); return; }
+      const sz = Math.max(5, val(size, 20)), shapes = [];
+      Object.assign(layerOf(ws.doc, layers[n]), { ...defaultLayer(layers[n]), name: 'Kerf test labels', mode: 'fill', speed: 150, powerMax: Math.max(10, val(power) / 4), interval: 0.1 });
+      for (let i = 0; i < n; i++) {
+        const k = +(val(k0) + ((val(k1) - val(k0)) * i) / (n - 1)).toFixed(3);
+        Object.assign(layerOf(ws.doc, layers[i]), { ...defaultLayer(layers[i]), name: `Kerf ${k.toFixed(2)}`, mode: 'line', speed: val(speed, 10), powerMax: val(power, 80), kerf: k });
+        shapes.push(makeRect(layers[i], i * (sz + 4), 0, sz, sz), makeText(layers[n], i * (sz + 4) + 2, sz / 2 - 2, k.toFixed(2), 'Sans', 4));
+      }
+      const group = makeGroup(shapes);
+      const b = boundsOf([group]);
+      group.m = translate(ws.machine.bedW / 2 - b.cx, ws.machine.bedH / 2 - b.cy);
+      ws.doc.layerOrder = [layers[n], ...layers.slice(0, n), ...(ws.doc.layerOrder || []).filter((x) => !layers.includes(x))];
+      m.close();
+      ws.add([group]);
+    }));
+}
+
+/** A row of lines, each marked at a different Z height: the thinnest line shows the best focus. */
+export function focusTestDialog(ws) {
+  if (!ws.machine.zEnabled || ws.machine.flavor === 'plasma') { toast('The focus test moves the Z axis. Turn on "Z axis" for a laser under Device first.', 'warn', 5000); return; }
+  const m = modal({ title: 'Focus test', width: 460 });
+  quiet(m);
+  const count = numInput(9, 1, 3, 15), z0 = numInput(-4, 0.5), z1 = numInput(4, 0.5), speed = numInput(50, 5, 0.1), power = numInput(20, 1, 0, 100), len = numInput(20, 1, 5);
+  m.body.append(h('div', { class: 'row' }, field('Lines', count), field('Line length (mm)', len)), h('div', { class: 'row' }, field('Lowest Z offset (mm)', z0), field('Highest Z offset (mm)', z1)),
+    h('div', { class: 'row' }, field('Speed (mm/s)', speed), field('Power (%)', power)),
+    h('div', { class: 'insp-note' }, 'Marks a row of lines, each at a different Z offset from your current focus height. The thinnest, sharpest line shows where the laser is in focus. Check first that the whole range is safe for your machine: a negative offset must not drive the head into the material.'),
+    actions(m, 'Generate', () => {
+      const n = Math.max(3, Math.min(15, Math.round(val(count, 9))));
+      const layers = freeLayers(ws, n + 1);
+      if (layers.length < n + 1) { toast('Not enough unused layers for this test', 'warn'); return; }
+      const L = Math.max(5, val(len, 20)), shapes = [];
+      Object.assign(layerOf(ws.doc, layers[n]), { ...defaultLayer(layers[n]), name: 'Focus test labels', mode: 'fill', speed: 150, powerMax: Math.max(10, val(power)), interval: 0.1 });
+      for (let i = 0; i < n; i++) {
+        const z = +(val(z0) + ((val(z1) - val(z0)) * i) / (n - 1)).toFixed(2);
+        Object.assign(layerOf(ws.doc, layers[i]), { ...defaultLayer(layers[i]), name: `Focus ${z > 0 ? '+' : ''}${z}`, mode: 'line', speed: val(speed, 50), powerMax: val(power, 20), zOffset: z });
+        shapes.push(pathFromPolys(layers[i], [{ pts: [[i * 9, 6], [i * 9, 6 + L]], closed: false }]), makeText(layers[n], i * 9 - 3, 0, `${z > 0 ? '+' : ''}${z}`, 'Sans', 3));
+      }
+      const group = makeGroup(shapes);
+      const b = boundsOf([group]);
+      group.m = translate(ws.machine.bedW / 2 - b.cx, ws.machine.bedH / 2 - b.cy);
+      m.close();
+      ws.add([group]);
+    }));
+}
+
 // ---------------------------------------------------------------- preview
 export function previewDialog(ws) {
   let plan;

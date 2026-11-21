@@ -49,6 +49,21 @@ export async function settingsDialog(app) {
     return input;
   };
 
+  // Downloads folder: where exported models, G-code and pictures go
+  const downloadsNote = h('span', {}, 'Where exported models, G-code and pictures are saved.');
+  const clearDownloads = button({ label: 'Use default', cls: 'btn-ghost', title: 'Go back to your computer\'s Downloads folder', onClick: async () => { await app.patchSettings({ downloadDir: '' }); showDownloads(); } });
+  const showDownloads = async () => {
+    const info = isDesktop ? await platform.downloadsInfo() : null;
+    if (!info) return;
+    downloadsNote.textContent = info.chosen ? info.chosen : `Not set: exports start in ${info.folder || 'your Downloads folder'}, or wherever you saved last.`;
+    clearDownloads.style.display = info.chosen ? '' : 'none';
+  };
+  const downloadsRow = row('Downloads folder', downloadsNote, h('div', { class: 'set-btns' },
+    button({ label: 'Choose…', icon: 'folder', cls: 'btn-outline', onClick: async () => { const p = await platform.pickFolder({ title: 'Choose where downloads go' }); if (p) { await app.patchSettings({ downloadDir: p }); toast('Downloads folder set'); showDownloads(); } } }),
+    button({ label: 'Open', cls: 'btn-ghost', onClick: () => platform.openDownloads() }),
+    clearDownloads));
+  showDownloads();
+
   m.body.append(
     h('div', { class: 'set-group' }, h('h4', {}, 'Appearance'),
       row('Theme', 'DabbleCAD starts in dark mode; switch to light any time.', themeSeg),
@@ -67,7 +82,9 @@ export async function settingsDialog(app) {
       row('Invert zoom direction', null, toggle(!!s.zoomInvert, (v) => app.patchSettings({ zoomInvert: v })))),
     h('div', { class: 'set-group' }, h('h4', {}, 'Files'),
       row('Auto-save', 'Designs are saved to your library as you work.', toggle(s.autosave !== false, (v) => app.patchSettings({ autosave: v }))),
-      isDesktop ? row('Design library', 'Where DabbleCAD keeps your designs.', button({ label: 'Open folder', icon: 'folder', cls: 'btn-outline', onClick: () => platform.openDesignsFolder() })) : null),
+      isDesktop ? row('Design library', 'Where DabbleCAD keeps your designs.', button({ label: 'Open folder', icon: 'folder', cls: 'btn-outline', onClick: () => platform.openDesignsFolder() })) : null,
+      isDesktop ? downloadsRow : null,
+      isDesktop ? row('Ask where to save each time', 'Off saves exports straight into the downloads folder without asking. Nothing is overwritten: a second "part.stl" becomes "part (2).stl".', toggle(s.askWhereToSave !== false, (v) => app.patchSettings({ askWhereToSave: v }))) : null),
     isDesktop ? h('div', { class: 'set-group' }, h('h4', {}, '3D printing'),
       row('Slicer', s.slicerPath ? s.slicerPath : 'Not set: "Open in slicer" uses whatever app opens 3MF files on this computer.', h('div', { class: 'set-btns' },
         button({ label: 'Choose…', cls: 'btn-outline', onClick: async () => { const p = await platform.pickApp(); if (p) { app.patchSettings({ slicerPath: p }); toast('Slicer set'); m.close(); settingsDialog(app); } } }),

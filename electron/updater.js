@@ -32,7 +32,7 @@ function pickAsset(version, { platform = process.platform, arch = process.arch, 
   return null;
 }
 
-function registerUpdater({ ipcMain, app, net, shell, getWindow, getSettings, smoke, argValue }) {
+function registerUpdater({ ipcMain, app, net, shell, getWindow, getSettings, getDownloadDir, smoke, argValue }) {
   // test hooks, honoured only by the automated checks
   const pretendVersion = smoke ? argValue('update-as') : null;
   const dryRun = smoke && !!argValue('update-dry-run');
@@ -92,7 +92,10 @@ function registerUpdater({ ipcMain, app, net, shell, getWindow, getSettings, smo
     if (!found || !found.url || !found.sumsUrl) return { ok: false, error: 'There is no downloadable update for this computer. Open the release page instead.' };
     busy = true;
     const info = found;
-    const dir = path.join(app.getPath('temp'), 'DabbleCAD-update');
+    // Installers are temporary. A build you replace by hand goes to your downloads folder, if you chose one.
+    const keep = info.mode === 'reveal' || info.mode === 'open';
+    const chosen = keep && typeof getDownloadDir === 'function' ? getDownloadDir() : '';
+    const dir = chosen || path.join(app.getPath('temp'), 'DabbleCAD-update');
     const file = path.join(dir, info.asset);
     try {
       fs.mkdirSync(dir, { recursive: true });

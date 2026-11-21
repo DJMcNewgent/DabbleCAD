@@ -318,6 +318,9 @@ export function importLBRN(xmlText, machine) {
     put('interval', 'interval'); put('angle', 'angle'); put('kerf', 'kerf'); put('overscan', 'overscanPercent'); put('zOffset', 'zOffset'); put('zStep', 'zPerPass');
     put('crosshatch', 'crossHatch', (v) => !!v); put('bidirectional', 'bidir', (v) => !!v); put('air', 'runBlower', (v) => !!v); put('output', 'doOutput', (v) => !!v); put('show', 'hide', (v) => !v);
     put('pierce', 'startDelay', (v) => Math.round(v));
+    // keep names the user typed; LightBurn's own are just the colour code (C00, T1)
+    const nameEl = kids(cs, 'name')[0], label = nameEl ? (nameEl.getAttribute('Value') || '').trim() : '';
+    if (label && !/^[CT]\d{1,2}$/.test(label)) set.name = label.slice(0, 40);
     layers[index] = set;
   }
 
