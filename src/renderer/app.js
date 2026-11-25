@@ -198,7 +198,7 @@ export class App {
       this._updateButtons();
       if (this._isVoxel()) this._rebuildVoxels();
     });
-    ed.on('selection', () => { this._updateButtons(); this._renderOutliner(); this._updateStatus(); });
+    ed.on('selection', () => { this._updateButtons(); this._renderOutliner(); this._updateStatus(); if (ed.tool === 'align') this._updateBanner(); });
     ed.on('transform', () => this._updateStatus());
     ed.on('history', () => this._updateButtons());
     ed.on('tool', () => { this._updateButtons(); this._updateBanner(); });
@@ -696,7 +696,9 @@ export class App {
       ruler: 'Click the workplane to place the ruler.',
       note: 'Click a shape or the workplane to pin a note.',
       place: 'Click on the workplane to place the shape.',
-      align: 'Click a dot to align. Click a selected shape to make it the anchor.',
+      align: ed.alignAnchor && ed.node(ed.alignAnchor)
+        ? 'Aligning to the shape outlined in orange: it stays where it is and the others move to it. Click a dot to align; click that shape again to let everything move.'
+        : ed.selection.size > 1 ? 'Click a dot to align. To line shapes up with one that stays put, click that shape first.' : 'Click a dot to align. Select two or more shapes to line them up with each other.',
       mirror: 'Click an arrow to flip the selection.',
       pick: ed.picking ? ed.picking.prompt + (ed.picking.count > 1 ? ` (${ed.picking.points.length} of ${ed.picking.count})` : '') : '',
     }[ed.tool];

@@ -120,6 +120,7 @@ export class LaserWorkspace {
   select(ids) {
     const byId = new Map(this.doc.shapes.map((s) => [s.id, s]));
     this.sel = [...new Set(ids)].filter((id) => { const s = byId.get(id); return !s || !this.layerLocked(s); });
+    this.alignKey = null;
     this.nodeSel = null;
     this.refresh();
   }
@@ -638,7 +639,8 @@ export class LaserWorkspace {
     }
     const s = this.hit(raw);
     if (s) {
-      if (e.shiftKey || e.ctrlKey) { this.select(this.sel.includes(s.id) ? this.sel.filter((id) => id !== s.id) : [...this.sel, s.id]); return; }
+      // the shape added last by Shift-click is the one the others are aligned to
+      if (e.shiftKey || e.ctrlKey) { const adding = !this.sel.includes(s.id); this.select(adding ? [...this.sel, s.id] : this.sel.filter((id) => id !== s.id)); this.alignKey = adding && this.sel.includes(s.id) ? s.id : null; return; }
       if (!this.sel.includes(s.id)) this.select([s.id]);
       const mv = this.movable();
       this.drag = { kind: 'move', from: raw, b: this.selBounds(), start: new Map(mv.map((x) => [x.id, [...x.m]])), moved: false };
@@ -904,9 +906,12 @@ export class LaserWorkspace {
   }
   align(axis, f) {
     const shapes = this.movable();
-    const ref = shapes.length > 1 ? this.selBounds() : { x0: 0, y0: 0, w: this.machine.bedW, h: this.machine.bedH };
+    // several shapes picked one by one: the last one stays put and the rest move to it; a box selection meets at its own edges
+    const key = shapes.length > 1 && this.alignKey && this.sel.includes(this.alignKey) ? this.doc.shapes.find((s) => s.id === this.alignKey) : null;
+    const ref = (key && boundsOf([key])) || (shapes.length > 1 ? this.selBounds() : { x0: 0, y0: 0, w: this.machine.bedW, h: this.machine.bedH });
     if (!shapes.length) return;
     for (const s of shapes) {
+      if (s === key) continue;
       const b = boundsOf([s]);
       if (!b) continue;
       if (axis === 'x') s.m = mul(translate(ref.x0 + ref.w * f - (b.x0 + b.w * f), 0), s.m);

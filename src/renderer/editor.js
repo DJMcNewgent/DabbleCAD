@@ -12,6 +12,7 @@ class Emitter {
 
 const SEL_COLOR = 0x29c5ff;
 const selLineMat = new THREE.LineBasicMaterial({ color: SEL_COLOR });
+const anchorLineMat = new THREE.LineBasicMaterial({ color: 0xff8f1f }); // the shape the others are aligned to
 const edgeLineMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32 });
 
 function makeHoleMaterial() {
@@ -217,12 +218,12 @@ export class Editor extends Emitter {
       mesh.castShadow = !tr;
       mesh.renderOrder = tr ? 1 : 0;
     }
-    this._syncOutline(mesh, this.selection.has(node.id));
+    this._syncOutline(mesh, this.selection.has(node.id), node.id === this.alignAnchor);
     mesh.updateMatrixWorld(true);
   }
 
-  _syncOutline(mesh, selected) {
-    const want = selected ? selLineMat : this.settings.edges ? edgeLineMat : null;
+  _syncOutline(mesh, selected, anchor = false) {
+    const want = anchor ? anchorLineMat : selected ? selLineMat : this.settings.edges ? edgeLineMat : null;
     let line = mesh.userData.line;
     if (!want) {
       if (line) { mesh.remove(line); mesh.userData.line = null; }
@@ -240,7 +241,7 @@ export class Editor extends Emitter {
   }
 
   refreshOutlines() {
-    for (const [id, mesh] of this.meshes) { this._syncOutline(mesh, this.selection.has(id)); mesh.updateMatrixWorld(true); }
+    for (const [id, mesh] of this.meshes) { this._syncOutline(mesh, this.selection.has(id), id === this.alignAnchor); mesh.updateMatrixWorld(true); }
     this.viewport.requestRender();
   }
 
@@ -344,7 +345,7 @@ export class Editor extends Emitter {
   setTool(tool) {
     if (this.placing && tool !== 'place') this.cancelPlace();
     this.tool = this.tool === tool && tool !== 'select' && tool !== 'place' ? 'select' : tool;
-    if (this.tool !== 'align') this.alignAnchor = null;
+    if (this.tool !== 'align' && this.alignAnchor) { this.alignAnchor = null; this.refreshOutlines(); }
     if (this.picking && this.tool !== 'pick') { const p = this.picking; this.picking = null; p.done(null); }
     this.viewport.canvas.style.cursor = ['workplane', 'ruler', 'note', 'pick'].includes(this.tool) ? 'crosshair' : '';
     this.emit('tool');
@@ -417,6 +418,7 @@ export class Editor extends Emitter {
     const node = hit.node;
     if (this.tool === 'align' && this.selection.has(node.id) && !e.shiftKey) {
       this.alignAnchor = this.alignAnchor === node.id ? null : node.id;
+      this.refreshOutlines();
       this.emit('selection');
       return;
     }

@@ -1,5 +1,3 @@
-New CNC tab: draw parts, make toolpaths (profile, pocket, drill, V-carve, 3D relief and more), preview the cut, and run a GRBL machine with jogging, probing and macros.
+Align to one object: in Align, click the shape that should stay put (it turns orange) and the others move to it. In Laser and CNC, the shape you Shift-click last stays put.
 
-Mesh tools in 3D Design: sculpt, select and edit faces, repair, hollow, patterns, cuts, and print analysis.
-
-Many bug fixes across 3D design, laser and image import.
+Special thanks to jss1701-ThorinDrakeson for the suggestion.

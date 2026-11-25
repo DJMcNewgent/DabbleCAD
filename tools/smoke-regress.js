@@ -31,6 +31,21 @@ window.addEventListener('unhandledrejection', (e) => errors.push('rejection: ' +
   check('3d-leave-closes-group', (await app.confirmLeave()) === true && !ed.editing);
   const saved = JSON.parse(await window.dabbleNative.loadDesign(app.designId));
   check('3d-saved-as-group', saved.nodes.length === 1 && saved.nodes[0].type === 'group', saved.nodes.map((n) => n.type));
+  // align to one shape: the anchor stays put, is outlined, and the banner says so
+  {
+    const p = S.makeShape('box', { w: 10, d: 10, h: 10 }), q = S.makeShape('box', { w: 10, d: 10, h: 10 });
+    p.matrix[12] = -80; q.matrix[12] = -50; q.matrix[13] = 30;
+    ed.addNode(p, { select: false, commit: false }); ed.addNode(q, { select: false });
+    ed.select([p.id, q.id]); ed.setTool('align');
+    const px = ed.bounds([p]).min.x;
+    ed.alignAnchor = p.id; ed.refreshOutlines(); ed.emit('selection');
+    check('align-anchor-outlined', ed.meshes.get(p.id).userData.line.material.color.getHex() === 0xff8f1f && /orange/.test(app.banner.textContent), app.banner.textContent);
+    ed.align('x', 'min');
+    check('align-to-anchor', near(ed.bounds([p]).min.x, px, 1e-6) && near(ed.bounds([q]).min.x, px, 1e-6), [ed.bounds([p]).min.x, ed.bounds([q]).min.x]);
+    ed.setTool('select');
+    check('align-anchor-cleared', ed.alignAnchor === null && ed.meshes.get(p.id).userData.line.material.color.getHex() !== 0xff8f1f);
+    ed.replaceNodes([p.id, q.id], [], { select: false });
+  }
   // generators at awkward sizes: a small thick-walled lid stays a lid, a short clip's hook stays on its arm
   {
     const Geo = window.dabbleLib.geometry;
@@ -145,6 +160,18 @@ ws.select(tp.shapes); ws.job.units = 'in'; ws.commit(); ws.anchor = 6; ws._rende
   check('cnc-props-typed-inches', near(L.model.boundsOf(ws.selected()).w, 50.8, 0.01), L.model.boundsOf(ws.selected()).w);
 }
 ws.job.units = 'mm'; ws.commit();
+// align to the shape picked last: it stays put and the other moves to it
+{
+  const keep = [...ws.sel];
+  const k1 = L.model.makeRect(0, 10, 200, 20, 20), k2 = L.model.makeRect(0, 150, 240, 30, 30);
+  ws.add([k1, k2]); ws.select([k1.id, k2.id]); ws.alignKey = k2.id;
+  ws.align('x', 0);
+  const b1 = L.model.boundsOf([ws.doc.shapes.find((s) => s.id === k1.id)]), b2 = L.model.boundsOf([ws.doc.shapes.find((s) => s.id === k2.id)]);
+  check('2d-align-to-last-picked', near(b2.x0, 150) && near(b1.x0, 150), [b1.x0, b2.x0]);
+  ws.select([k1.id, k2.id]); ws.align('x', 1);
+  check('2d-box-selection-meets-at-edges', near(L.model.boundsOf([ws.doc.shapes.find((s) => s.id === k1.id)]).x0, 160), L.model.boundsOf([ws.doc.shapes.find((s) => s.id === k1.id)]).x0);
+  ws.select([k1.id, k2.id]); ws.remove(); ws.select(keep);
+}
 // X and Y count from the job's XY zero, the rulers' units follow the job, and undo covers variable text
 {
   const was = ws.job.xyZero, unitsWere = ws.job.units;
