@@ -119,9 +119,36 @@ checksums, download and check the distributions, and publish the draft only when
 ready. A rerun will not overwrite an existing release automatically: if creation
 reports that a release already exists, inspect that release before taking action.
 
+## Windows signing (Azure Artifact Signing)
+
+Release tags sign the Windows installer and app with Azure Artifact Signing
+(formerly Trusted Signing) when these are set under Settings > Secrets and
+variables > Actions:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Variable | `AZURE_SIGN_ENDPOINT` | The account's regional endpoint, such as `https://eus.codesigning.azure.net` |
+| Variable | `AZURE_SIGN_ACCOUNT` | Artifact Signing account name |
+| Variable | `AZURE_SIGN_PROFILE` | Certificate profile name |
+| Variable | `AZURE_SIGN_PUBLISHER` | Subject of the certificate, exactly as shown on the profile |
+| Secret | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | An Entra app registration (service principal) |
+
+Give that app registration the **Artifact Signing Certificate Profile Signer**
+role on the signing account (or the profile). The endpoint region must match the
+region the account was created in. Nothing is signed until `AZURE_SIGN_ACCOUNT`
+is set, and only `v*` tags sign: branch builds stay unsigned so the secrets are
+never used on them. After signing, the workflow checks that the installer and
+`DabbleCAD.exe` have a valid Authenticode signature and fails the build if not,
+so a misconfiguration cannot ship an unsigned installer unnoticed. Check a
+signed release by hand with `Get-AuthenticodeSignature` or the file's Properties
+> Digital Signatures tab. SmartScreen reputation for a new publisher can still
+take a while to build.
+
+The Mac builds and branch builds remain unsigned, as described next.
+
 ## Unsigned builds
 
-The initial release is intentionally unsigned by a trusted publisher:
+Until signing is set up (and always for macOS), builds are not signed by a trusted publisher:
 
 - **Windows:** SmartScreen may warn about an unknown publisher.
 - **macOS:** `identity: "-"` supplies an ad-hoc signature. It is not an Apple

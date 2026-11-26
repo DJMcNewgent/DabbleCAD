@@ -71,8 +71,37 @@ jobs:
         if: ${{ matrix.skip_tests }}
         run: npm run build
       - name: Package apps without publishing
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && !(matrix.artifact == 'windows-x64' && startsWith(github.ref, 'refs/tags/v') && vars.AZURE_SIGN_ACCOUNT != '')
         run: npx --no-install electron-builder ${{ matrix.args }} --publish never
+      # Windows release tags are signed with Azure Artifact Signing once the repository
+      # variables and secrets in RELEASING.md exist; without them the build stays unsigned.
+      - name: Package and sign the Windows app (Azure Artifact Signing)
+        if: matrix.artifact == 'windows-x64' && startsWith(github.ref, 'refs/tags/v') && vars.AZURE_SIGN_ACCOUNT != ''
+        shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SIGN_ENDPOINT: ${{ vars.AZURE_SIGN_ENDPOINT }}
+          SIGN_ACCOUNT: ${{ vars.AZURE_SIGN_ACCOUNT }}
+          SIGN_PROFILE: ${{ vars.AZURE_SIGN_PROFILE }}
+          SIGN_PUBLISHER: ${{ vars.AZURE_SIGN_PUBLISHER }}
+        run: |
+          npx --no-install electron-builder ${{ matrix.args }} --publish never \
+            "-c.win.azureSignOptions.endpoint=$SIGN_ENDPOINT" \
+            "-c.win.azureSignOptions.codeSigningAccountName=$SIGN_ACCOUNT" \
+            "-c.win.azureSignOptions.certificateProfileName=$SIGN_PROFILE" \
+            "-c.win.azureSignOptions.publisherName=$SIGN_PUBLISHER"
+      - name: Check the Windows signature
+        if: matrix.artifact == 'windows-x64' && startsWith(github.ref, 'refs/tags/v') && vars.AZURE_SIGN_ACCOUNT != ''
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem "release/${{ steps.version.outputs.version }}/DabbleCAD-*-setup.exe") + @(Get-Item "release/${{ steps.version.outputs.version }}/win-unpacked/DabbleCAD.exe")
+          foreach ($f in $files) {
+            $s = Get-AuthenticodeSignature $f.FullName
+            "$($f.Name): $($s.Status) $($s.SignerCertificate.Subject)"
+            if ($s.Status -ne 'Valid') { throw "$($f.Name) is not validly signed ($($s.Status))" }
+          }
       - name: Test packaged apps offline
         if: ${{ github.event_name != 'pull_request' && !matrix.skip_tests }}
         run: ${{ matrix.test_prefix }} npm run test:packaged
