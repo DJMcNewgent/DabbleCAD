@@ -122,23 +122,29 @@ Each release provides:
   on desktop Linux distributions; reports are welcome.
 - **Checksums:** `SHA256SUMS.txt` for verifying the downloads.
 
-These initial builds do **not** have a trusted publisher signature or Apple
-notarization. Windows SmartScreen and macOS Gatekeeper may warn or block launch.
-Mac builds use an ad-hoc signature, not a verified Developer ID. Only use downloads
-from this repository and compare their checksums. Do not disable your computer's
-security protections globally; see [release guidance](RELEASING.md#unsigned-builds).
+**Windows** installers and apps from version 1.5.2 on are signed by
+CoreDrift, LLC. (check the file's Properties > Digital Signatures tab). SmartScreen
+may still warn about a newly signed app until it has built up a reputation.
+Earlier Windows builds are unsigned.
+
+**Mac** builds do **not** have Apple notarization: they use an ad-hoc signature,
+not a verified Developer ID, so Gatekeeper may warn or block launch. Only use
+downloads from this repository and compare their checksums. Do not disable your
+computer's security protections globally; see
+[release guidance](RELEASING.md#windows-signing-azure-artifact-signing).
 
 ### First launch
 
-Because the builds are not signed by a trusted publisher, your computer asks once
-before running DabbleCAD. Check the download against `SHA256SUMS.txt` first, then
-approve only this app:
+Some builds are not signed by a trusted publisher (all Mac builds, and Windows
+builds before 1.5.2), so your computer asks once before running DabbleCAD. Check
+the download against `SHA256SUMS.txt` first, then approve only this app:
 
 **Windows**
 
 1. Run the installer, or `DabbleCAD.exe` from the extracted ZIP.
 2. If a blue **Windows protected your PC** window appears, select **More info**.
-3. Confirm the app name, then select **Run anyway**.
+3. Confirm the app name (and, for 1.5.2 or later, the publisher, CoreDrift, LLC.),
+   then select **Run anyway**.
 
 **Mac**
 
@@ -375,7 +381,7 @@ npm start
   for the host architecture.
 
 Build output goes in `release/VERSION/`. See [RELEASING.md](RELEASING.md) for CI,
-checksums, unsigned builds, and the public-release checklist.
+checksums, code signing, and the public-release checklist.
 
 ## Project status and limitations
 
