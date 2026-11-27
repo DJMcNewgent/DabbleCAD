@@ -695,7 +695,7 @@ export class App {
       workplane: 'Click a face to put the workplane on it (Shift flips it). Click empty space to reset.',
       ruler: 'Click the workplane to place the ruler.',
       note: 'Click a shape or the workplane to pin a note.',
-      place: 'Click on the workplane to place the shape.',
+      place: 'Click on the workplane or on a shape\'s face to place the shape. Hold Ctrl to ignore shapes.',
       align: ed.alignAnchor && ed.node(ed.alignAnchor)
         ? 'Aligning to the shape outlined in orange: it stays where it is and the others move to it. Click a dot to align; click that shape again to let everything move.'
         : ed.selection.size > 1 ? 'Click a dot to align. To line shapes up with one that stays put, click that shape first.' : 'Click a dot to align. Select two or more shapes to line them up with each other.',

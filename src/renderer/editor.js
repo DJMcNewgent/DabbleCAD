@@ -624,7 +624,7 @@ export class Editor extends Emitter {
 
   // ---------------------------------------------------------------- adding shapes
   /** Position a new node so its footprint is centred on (x, y) of the workplane and it rests on it. */
-  placeAt(node, x, y) {
+  placeAt(node, x, y, z = 0) {
     const base = node._base || (node._base = [...node.matrix]);
     const g = getGeometry(node);
     const box = expandBox(new THREE.Box3(), g, mat4(base));
@@ -633,7 +633,24 @@ export class Editor extends Emitter {
     const hw = box.isEmpty() ? 0 : (box.max.x - box.min.x) / 2, hl = box.isEmpty() ? 0 : (box.max.y - box.min.y) / 2;
     // snap the footprint corner so edges land on the grid
     const px = this.snapValue(x - hw) + hw, py = this.snapValue(y - hl) + hl;
-    const m = this.frame.clone().multiply(T(px - cx, py - cy, -minz)).multiply(mat4(base));
+    const m = this.frame.clone().multiply(T(px - cx, py - cy, z - minz)).multiply(mat4(base));
+    m.toArray(node.matrix);
+  }
+
+  /**
+   * Stand a new node on the face hit under the pointer (as `pickNode` returns it): on a face
+   * that points up it sits on top, still snapped to the grid; on any other face it is turned
+   * so its bottom lies flat against that face.
+   */
+  placeOnHit(node, hit) {
+    const local = hit.point.clone().applyMatrix4(this.frameInv);
+    const n = hit.normal.clone().transformDirection(this.frameInv);
+    if (n.z > 0.999) return this.placeAt(node, local.x, local.y, local.z);
+    const base = node._base || (node._base = [...node.matrix]);
+    const box = expandBox(new THREE.Box3(), getGeometry(node), mat4(base));
+    const c = box.isEmpty() ? new THREE.Vector3() : new THREE.Vector3((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, box.min.z);
+    const rot = new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n));
+    const m = this.frame.clone().multiply(T(local.x, local.y, local.z)).multiply(rot).multiply(T(-c.x, -c.y, -c.z)).multiply(mat4(base));
     m.toArray(node.matrix);
   }
 
@@ -682,9 +699,16 @@ export class Editor extends Emitter {
       return el === canvas || (el && el.closest && el.closest('.gizmo-layer') && !el.closest('.gz-handle'));
     };
     const update = (ev) => {
-      const p = overCanvas(ev) ? this.planePoint(ev) : null;
+      const over = overCanvas(ev);
+      // land on the face of a shape under the pointer; Ctrl keeps it on the workplane
+      const hit = over && !ev.ctrlKey && !ev.metaKey ? this.pickNode(ev) : null;
+      const p = hit ? hit.point : over ? this.planePoint(ev) : null;
       ghost.visible = !!p;
-      if (p) {
+      if (hit) {
+        this.placeOnHit(node, hit);
+        ghost.matrix.fromArray(node.matrix);
+        ghost.updateMatrixWorld(true);
+      } else if (p) {
         this.placeAt(node, p.x, p.y);
         ghost.matrix.fromArray(node.matrix);
         ghost.updateMatrixWorld(true);

@@ -1,1 +1,2 @@
-The Windows installer and app are now code-signed (CoreDrift, LLC.).
+- Height bar: selected shapes show a dimension line for their height.
+- New shapes dropped on another shape land on the face under the pointer (hold Ctrl to place on the workplane).

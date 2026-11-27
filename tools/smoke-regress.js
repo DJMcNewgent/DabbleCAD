@@ -46,6 +46,38 @@ window.addEventListener('unhandledrejection', (e) => errors.push('rejection: ' +
     check('align-anchor-cleared', ed.alignAnchor === null && ed.meshes.get(p.id).userData.line.material.color.getHex() !== 0xff8f1f);
     ed.replaceNodes([p.id, q.id], [], { select: false });
   }
+  // a new shape dropped on another lands on the face under the pointer; the height bar is drawn
+  {
+    ed.setFrame(null); ed.clearSelection();
+    const base = S.makeShape('box', { w: 30, d: 30, h: 20 });
+    ed.addNode(base, { select: false });
+    const vp = ed.viewport, rect = vp.canvas.getBoundingClientRect();
+    const bb = ed.bounds([base]);
+    const at = (x, y, z) => vp.project(bb.max.clone().set(x, y, z), {});
+    const drop = (pt) => {
+      const n = S.makeShape('box', { w: 10, d: 10, h: 10 });
+      ed.beginPlace(n);
+      const opt = { clientX: rect.left + pt.x, clientY: rect.top + pt.y, bubbles: true, button: 0, pointerId: 1 };
+      window.dispatchEvent(new PointerEvent('pointermove', opt));
+      vp.canvas.dispatchEvent(new PointerEvent('pointerdown', opt));
+      return ed.doc.nodes.includes(n) ? n : null;
+    };
+    const top = drop(at((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, bb.max.z));
+    check('drop-on-top-face', top && near(ed.bounds([top]).min.z, bb.max.z, 0.05), top && ed.bounds([top]).min.z);
+    ed.select([base.id]); app.gizmo.layout();
+    check('height-bar-shown', app.gizmo.hbar.style.display !== 'none' && parseFloat(app.gizmo.hbar.style.width) > 14, [app.gizmo.hbar.style.display, app.gizmo.hbar.style.width]);
+    // Ctrl keeps a drop on the workplane even over a shape
+    const n2 = S.makeShape('box', { w: 10, d: 10, h: 10 });
+    ed.clearSelection(); app.gizmo.layout();
+    ed.beginPlace(n2);
+    const c2 = at((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, bb.max.z);
+    const o2 = { clientX: rect.left + c2.x, clientY: rect.top + c2.y, bubbles: true, button: 0, pointerId: 1, ctrlKey: true };
+    window.dispatchEvent(new PointerEvent('pointermove', o2));
+    vp.canvas.dispatchEvent(new PointerEvent('pointerdown', o2));
+    const onPlate = ed.doc.nodes.includes(n2);
+    check('drop-ctrl-on-workplane', onPlate && near(ed.bounds([n2]).min.z, 0, 0.05), onPlate && ed.bounds([n2]).min.z);
+    ed.replaceNodes([base.id, ...(top ? [top.id] : []), ...(onPlate ? [n2.id] : [])], [], { select: false });
+  }
   // generators at awkward sizes: a small thick-walled lid stays a lid, a short clip's hook stays on its arm
   {
     const Geo = window.dabbleLib.geometry;

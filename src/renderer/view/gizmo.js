@@ -112,6 +112,11 @@ export class Gizmo {
     rot('x', (b, c, o) => [c.x, b.max.y + o * 1.5, b.max.z], 'Rotate around X (Shift: 45° steps)');
     rot('y', (b, c, o) => [b.min.x - o * 1.5, c.y, b.max.z], 'Rotate around Y (Shift: 45° steps)');
 
+    // height bar: a dimension line up the vertical edge nearest the left of the screen
+    this.hbar = h('div', { class: 'gz-hbar' });
+    this.hbar.style.display = 'none';
+    this.layer.append(this.hbar);
+
     // dimension labels
     this.labels = {};
     const label = (key, pos, opts) => {
@@ -225,6 +230,7 @@ export class Gizmo {
         it.el.style.display = '';
         it.el.style.transform = `translate(${Math.round(p.x + (it.dx || 0))}px, ${Math.round(p.y + (it.dy || 0))}px) translate(-50%, -50%)`;
       }
+      this._layoutHeightBar(b, show.dims);
       if (!this.editingLabel) {
         const u = ed.units;
         this.labels.x.el.textContent = formatLength(b.max.x - b.min.x, u);
@@ -238,6 +244,7 @@ export class Gizmo {
       }
     } else {
       for (const it of this.items) it.el.style.display = 'none';
+      this.hbar.style.display = 'none';
     }
     // ruler origin button
     if (ed.ruler) {
@@ -255,6 +262,34 @@ export class Gizmo {
       el.style.display = p.behind || !this.showNotes ? 'none' : '';
       el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
     }
+  }
+
+  /** Draw the height bar beside the leftmost vertical edge and centre the height label on it. */
+  _layoutHeightBar(b, on) {
+    const bar = this.hbar;
+    const hide = () => { bar.style.display = 'none'; };
+    if (!on || b.max.z - b.min.z < 1e-6) return hide();
+    const ed = this.editor, vp = this.viewport;
+    const v = new THREE.Vector3(), lo = {}, hi = {};
+    let best = null;
+    for (const [x, y] of [[b.min.x, b.min.y], [b.max.x, b.min.y], [b.min.x, b.max.y], [b.max.x, b.max.y]]) {
+      vp.project(v.set(x, y, b.min.z).applyMatrix4(ed.frame), lo);
+      if (lo.behind) continue;
+      if (!best || lo.x < best.sx) best = { sx: lo.x, sy: lo.y, x, y };
+    }
+    if (!best) return hide();
+    vp.project(v.set(best.x, best.y, b.max.z).applyMatrix4(ed.frame), hi);
+    if (hi.behind) return hide();
+    const off = 26;
+    const x0 = best.sx - off, y0 = best.sy, x1 = hi.x - off, y1 = hi.y;
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    // looking straight down the edge there is no bar to draw; the label keeps its default spot
+    if (len < 14) return hide();
+    bar.style.display = '';
+    bar.style.width = Math.round(len) + 'px';
+    bar.style.transform = `translate(${Math.round(x0)}px, ${Math.round(y0)}px) rotate(${Math.atan2(y1 - y0, x1 - x0)}rad)`;
+    const z = this.labels.z.el;
+    z.style.transform = `translate(${Math.round((x0 + x1) / 2 - 8)}px, ${Math.round((y0 + y1) / 2)}px) translate(-100%, -50%)`;
   }
 
   // ---------------------------------------------------------------- drags
