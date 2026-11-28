@@ -54,15 +54,19 @@ window.addEventListener('unhandledrejection', (e) => errors.push('rejection: ' +
     const vp = ed.viewport, rect = vp.canvas.getBoundingClientRect();
     const bb = ed.bounds([base]);
     const at = (x, y, z) => vp.project(bb.max.clone().set(x, y, z), {});
+    let lit = 0;
     const drop = (pt) => {
       const n = S.makeShape('box', { w: 10, d: 10, h: 10 });
       ed.beginPlace(n);
       const opt = { clientX: rect.left + pt.x, clientY: rect.top + pt.y, bubbles: true, button: 0, pointerId: 1 };
       window.dispatchEvent(new PointerEvent('pointermove', opt));
+      const hl = ed._faceHL;
+      lit = !!hl && hl.group.visible && hl.region.tris.size;
       vp.canvas.dispatchEvent(new PointerEvent('pointerdown', opt));
       return ed.doc.nodes.includes(n) ? n : null;
     };
     const top = drop(at((bb.min.x + bb.max.x) / 2, (bb.min.y + bb.max.y) / 2, bb.max.z));
+    check('drop-face-highlighted', lit >= 1 && !ed._faceHL.group.visible, lit);
     check('drop-on-top-face', top && near(ed.bounds([top]).min.z, bb.max.z, 0.05), top && ed.bounds([top]).min.z);
     ed.select([base.id]); app.gizmo.layout();
     check('height-bar-shown', app.gizmo.hbar.style.display !== 'none' && parseFloat(app.gizmo.hbar.style.width) > 14, [app.gizmo.hbar.style.display, app.gizmo.hbar.style.width]);

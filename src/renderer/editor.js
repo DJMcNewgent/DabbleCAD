@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { History, cloneNode, makeGroup, mat4, uid, newDoc, ownColors } from './core/doc.js';
 import { getGeometry, expandBox, getEdges, measure, stats as geoStats } from './core/geometry.js';
 import { toast } from './ui/dom.js';
+import { FaceHighlight } from './view/facehl.js';
 
 class Emitter {
   constructor() { this._l = {}; }
@@ -378,7 +379,14 @@ export class Editor extends Emitter {
     const normal = hit.face
       ? hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize()
       : new THREE.Vector3(0, 0, 1);
-    return { node: this.node(hit.object.userData.id), point: hit.point.clone(), normal, mesh: hit.object };
+    return { node: this.node(hit.object.userData.id), point: hit.point.clone(), normal, mesh: hit.object, faceIndex: hit.faceIndex };
+  }
+
+  /** Light up the flat face a shape is about to land on (null hides it). */
+  highlightFace(hit) {
+    if (!hit && !this._faceHL) return;
+    if (!this._faceHL) this._faceHL = new FaceHighlight(this.viewport);
+    if (hit) this._faceHL.show(hit.mesh, hit.faceIndex); else this._faceHL.hide();
   }
 
   // ---------------------------------------------------------------- pointer handling
@@ -518,6 +526,7 @@ export class Editor extends Emitter {
       }
       if (this.cruise) {
         const target = this.pickNode(ev, this.selection);
+        this.highlightFace(target);
         if (target) {
           const c0 = new THREE.Vector3((box0.min.x + box0.max.x) / 2, (box0.min.y + box0.max.y) / 2, box0.min.z).applyMatrix4(this.frame);
           const up = new THREE.Vector3(0, 0, 1).transformDirection(this.frame);
@@ -538,6 +547,7 @@ export class Editor extends Emitter {
       this.applyLocal(nodes, start, T(dx, dy, 0));
       moved = true;
     }, () => {
+      this.highlightFace(null);
       if (!dragging) return;
       this.emit('drag', false);
       if (moved || dup) { this.sync(); this.commit(); this.emit('selection'); }
@@ -704,6 +714,7 @@ export class Editor extends Emitter {
       const hit = over && !ev.ctrlKey && !ev.metaKey ? this.pickNode(ev) : null;
       const p = hit ? hit.point : over ? this.planePoint(ev) : null;
       ghost.visible = !!p;
+      this.highlightFace(hit);
       if (hit) {
         this.placeOnHit(node, hit);
         ghost.matrix.fromArray(node.matrix);
@@ -736,6 +747,7 @@ export class Editor extends Emitter {
         window.removeEventListener('pointermove', onMove, true);
         window.removeEventListener('pointerup', onUp, true);
         window.removeEventListener('pointerdown', onDown, true);
+        this.highlightFace(null);
         this.viewport.helpers.remove(ghost);
         ghost.material.dispose();
         this.viewport.requestRender();

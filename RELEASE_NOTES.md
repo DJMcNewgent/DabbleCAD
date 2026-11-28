@@ -1,2 +1,1 @@
-- Height bar: selected shapes show a dimension line for their height.
-- New shapes dropped on another shape land on the face under the pointer (hold Ctrl to place on the workplane).
+- The face a shape is about to land on lights up in green while you drag.
